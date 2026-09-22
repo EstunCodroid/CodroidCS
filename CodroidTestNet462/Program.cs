@@ -1,24 +1,26 @@
 // =============================================================================
-// CodroidTestNet6 — 控制台示例程序（net6.0，与 CodroidTestNet8 逻辑同源、独立副本）
+// CodroidTestNet462 — 控制台示例程序（net6.0，与 CodroidTestNet8 逻辑同源、独立副本）
 // 在仓库根目录执行；net8.0 版见 CodroidTestNet8/Program.cs
 // -----------------------------------------------------------------------------
 // 【默认：完整套件】无子命令即跑全部 7 段（含 RobotStatus 订阅 10 秒）
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj -- 192.168.8.10     // 指定控制器 IP 跑全套
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj -- all 192.168.8.10   // 显式写 all，同上
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- 192.168.8.10     // 指定控制器 IP 跑全套
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- all 192.168.8.10   // 显式写 all，同上
 //   顺序：全局变量 → 正逆解 → IO → 寄存器 → RobotStatus → CRI → S20 运动+CRI
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj -- … --no-clean     // 仅影响「全局变量」段是否删除 sdk_gv_*
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- … --no-clean     // 仅影响「全局变量」段是否删除 sdk_gv_*
 //
 // 【仅单项】须带子命令：
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj -- global [ip]
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj -- cri [ip]
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj -- kin [ip]
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj -- io [ip]           // 或 iomanager
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj -- register [ip]     // 或 reg：寄存器读写
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj -- robotstatus [ip] // 仅订阅 publish/RobotStatus，收 10 秒推送
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj -- motion [ip]      // 或 s20 / movecri：四组合+矩形路径
-//   dotnet run --project CodroidTestNet6/CodroidTestNet6.csproj -- robotparam [ip] // 机器人设置 19.x（Get/SaveRobotParameter）
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- global [ip]
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- cri [ip]
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- kin [ip]
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- io [ip]           // 或 iomanager
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- register [ip]     // 或 reg：寄存器读写
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- robotstatus [ip] // 仅订阅 publish/RobotStatus，收 10 秒推送
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- motion [ip]      // 或 s20 / movecri：四组合+矩形路径
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- robotparam [ip] // 机器人设置 19.x（Get/SaveRobotParameter）
 //   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- syncmotion [ip] // 阻塞运动 Sync（CRI 新鲜度+到位判定）
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- toolcoord [ip]  // 工具/坐标系获取与设置
+//   dotnet run --project CodroidTestNet462/CodroidTestNet462.csproj -- points [ip] [数量] [速度] // 逐点下发 MovL
 // =============================================================================
 
 using System;
@@ -35,7 +37,7 @@ namespace Program;
 internal static class Program
 {
     /// <summary>未传 IP 时使用的默认控制器地址（请按现场修改）。</summary>
-    private const string DefaultRobotIp = "192.168.8.136";
+    private const string DefaultRobotIp = "192.168.1.136";
 
     /// <summary>程序入口：无子命令时跑完整套件；带子命令时只跑对应单项。</summary>
     private static async Task Main(string[] args)
@@ -69,6 +71,12 @@ internal static class Program
             case RunMode.RobotParameterTest:
                 await RunRobotParameterTest(robotIp);
                 return;
+            case RunMode.ToolCoordinateTest:
+                await RunToolCoordinateTest(robotIp);
+                return;
+            case RunMode.PointByPointTest:
+                await PointByPointTest.Run(robotIp, args);
+                return;
             case RunMode.SyncMotionTest:
                 await RunSyncMotionTest(robotIp);
                 return;
@@ -89,6 +97,8 @@ internal static class Program
         RegisterTest,
         RobotStatusPublishDemo,
         RobotParameterTest,
+        ToolCoordinateTest,
+        PointByPointTest,
         SyncMotionTest
     }
 
@@ -241,6 +251,28 @@ internal static class Program
             return RunMode.RobotParameterTest;
         }
 
+        if (list.Count > 0 && IsPointByPointCommand(list[0]))
+        {
+            // 不移除子命令名，整个 args 传给 PointByPointTest 自行解析
+            if (list.Count > 1)
+            {
+                robotIp = list[1];
+            }
+
+            return RunMode.PointByPointTest;
+        }
+
+        if (list.Count > 0 && IsToolCoordinateCommand(list[0]))
+        {
+            list.RemoveAt(0);
+            if (list.Count > 0)
+            {
+                robotIp = list[0];
+            }
+
+            return RunMode.ToolCoordinateTest;
+        }
+
         if (list.Count > 0 && IsSyncMotionCommand(list[0]))
         {
             list.RemoveAt(0);
@@ -303,6 +335,16 @@ internal static class Program
         string.Equals(token, "syncmotion", StringComparison.OrdinalIgnoreCase)
         || string.Equals(token, "motionsync", StringComparison.OrdinalIgnoreCase)
         || string.Equals(token, "andwait", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsToolCoordinateCommand(string token) =>
+        string.Equals(token, "toolcoord", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(token, "toolcoordinate", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(token, "tool", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPointByPointCommand(string token) =>
+        string.Equals(token, "points", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(token, "pointbypoint", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(token, "pnp", StringComparison.OrdinalIgnoreCase);
 
     // -------------------------------------------------------------------------
     // 控制台输出：分节横幅 + 颜色，便于在日志里一眼看到阶段
@@ -394,7 +436,7 @@ internal static class Program
         const string model = "S20-180-ECO_V2";
         var robot = new CodroidClient(robotIp);
 
-        const string localUdpIp = "192.168.8.150";
+        const string localUdpIp = "192.168.1.150";
         const int localUdpPort = 18888;
 
         using var printCts = new CancellationTokenSource();
@@ -781,11 +823,19 @@ internal static class Program
     }
 
     /// <summary>
+    /// 工具/坐标系获取与设置测试（toolcoord 子命令）。
+    /// </summary>
+    private static Task RunToolCoordinateTest(string robotIp)
+    {
+        return ToolCoordinateTest.Run(robotIp);
+    }
+
+    /// <summary>
     /// 阻塞运动演示：使用 *Sync API（CRI 新鲜度 + InMotion + 目标到位）判定完成。
     /// </summary>
     private static async Task RunSyncMotionTest(string robotIp)
     {
-        const string localUdpIp = "192.168.8.150";
+        const string localUdpIp = "192.168.1.150";
         const int localUdpPort = 18888;
 
         var robot = new CodroidClient(robotIp);
@@ -1338,7 +1388,7 @@ internal static class Program
         var robot = new CodroidClient(robotIp);
 
         // 本机网卡 IP：控制器会把 CRI 实时包推到这个地址；请改成你 PC 在机器人网段上的地址
-        const string localUdpIp = "192.168.8.150";
+        const string localUdpIp = "192.168.1.150";
         const int localUdpPort = 18888;
 
         var data = robot.Data;

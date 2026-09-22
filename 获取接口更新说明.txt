@@ -1,0 +1,81 @@
+机器人软件版本由2.3更新至2.4后接口变动：
+1.原先工具、负载、坐标系由接口
+{
+    "id": 1,
+    "ty": "Robot/GetRobotParameter"
+}
+获取，更新后如下：
+A.获取工具列表  请求参数如下：
+{
+    "id": "xxx",
+    "ty": "Robot/getTools"
+}
+返回数据如下：
+{
+    "id": "xxx",
+    "ty": "Robot/getTools",
+    "db": {
+        "defaultToolId": 0, // 默认工具id, 0-15
+        "Tool": [ // 必须为 16 项，按下标 0~15 对应工具id
+            {
+                "id": 0,
+                "name": "NoTool",
+                "x": 0.0, // TCP相对法兰的位移, 单位mm；若存在偏置，此处为扣除旋转偏置后的基准点
+                "y": 0.0,
+                "z": 0.0,
+                "a": 0.0, // TCP相对法兰的欧拉角, 单位度
+                "b": 0.0,
+                "c": 0.0,
+                "xOffset": 0.0, // 可选, 沿工具坐标系的偏置, 单位mm
+                "yOffset": 0.0,
+                "zOffset": 0.0
+            }
+            // ... 其余 15 项
+        ]
+    }
+}
+B.获取当前工具  请求参数如下：
+{
+    "id": "xxx",
+    "ty": "Robot/getCurrentToolAsJsonString"
+}
+返回数据如下：
+{
+    "id": "xxx",
+    "ty": "Robot/getCurrentToolAsJsonString",
+    "db": {
+        "x": 0.0, // 当前工具TCP, 单位mm
+        "y": 0.0,
+        "z": 0.0,
+        "a": 0.0, // 单位度
+        "b": 0.0,
+        "c": 0.0
+    }
+}
+C.获取坐标系列表  请求参数如下
+{
+    "ty": "Robot/getCoordinates",
+    "db": "",
+    "id": "mtjfcjx90ws40e8a"
+}
+返回数据格式如下
+{
+    "id": "mtjfcjx90ws40e8a",
+    "ty": "Robot/getCoordinates",
+    "db": {
+        "defaultCoordinateId": 0, // 默认用户坐标系id, 0-15；0 为世界坐标系
+        "Coordinate": [ // 必须为 16 项，按下标 0~15 对应坐标系id
+            {
+                "id": 0,
+                "name": "WorldCoordinate",
+                "x": 0.0, // 相对世界坐标系的位移, 单位mm
+                "y": 0.0,
+                "z": 0.0,
+                "a": 0.0, // 相对世界坐标系的欧拉角, 单位度
+                "b": 0.0,
+                "c": 0.0
+            }
+            // ... 其余 15 项
+        ]
+    }
+}

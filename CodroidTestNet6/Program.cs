@@ -35,7 +35,7 @@ namespace Program;
 internal static class Program
 {
     /// <summary>未传 IP 时使用的默认控制器地址（请按现场修改）。</summary>
-    private const string DefaultRobotIp = "192.168.8.136";
+    private const string DefaultRobotIp = "192.168.1.136";
 
     /// <summary>程序入口：无子命令时跑完整套件；带子命令时只跑对应单项。</summary>
     private static async Task Main(string[] args)
@@ -394,7 +394,7 @@ internal static class Program
         const string model = "S20-180-ECO_V2";
         var robot = new CodroidClient(robotIp);
 
-        const string localUdpIp = "192.168.8.150";
+        const string localUdpIp = "192.168.1.150";
         const int localUdpPort = 18888;
 
         using var printCts = new CancellationTokenSource();

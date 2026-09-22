@@ -885,8 +885,8 @@ await robot.SetPayload(1); // Use payload slot 1 / 使用载荷槽位 1
 public async Task<RobotParameters> GetRobotParameters()
 ```
 
-**EN:** Gets all setting-interface parameters (protocol 19.7). Returns tool frames, payload frames, coordinate frames, and default IDs.
-**ZH:** 获取所有设置界面参数（协议 19.7）。返回工具坐标系、载荷坐标系、用户坐标系及默认 ID。
+**EN:** Gets all setting-interface parameters. Uses new API (`Robot/getTools` + `Robot/getCoordinates`) with automatic fallback to legacy `Robot/GetRobotParameter` (protocol 19.7) on 404. Note: new API does not return Payload data; Payload list will be empty on new firmware.
+**ZH:** 获取所有设置界面参数。优先使用新接口（`Robot/getTools` + `Robot/getCoordinates`），404 时自动回退到旧接口 `Robot/GetRobotParameter`（协议 19.7）。注意：新接口不返回 Payload 数据，新固件上 Payload 列表为空。
 
 ```csharp
 RobotParameters param = await robot.GetRobotParameters();
@@ -906,7 +906,14 @@ public Task<CommonResponse> SetDefaultUserCoordinateId(int coordinateId) // 0~15
 ```
 
 **EN:** Set default payload / tool / user coordinate frame slot.
+- `SetDefaultPayloadId` forwards to `SetPayload` (`Robot/setPayload`, available on both old and new firmware).
+- `SetDefaultToolId` uses new API `Robot/setDefaultTool`, falls back to `Robot/SaveRobotParameter` on 404.
+- `SetDefaultUserCoordinateId` uses new API `Robot/setDefaultCoordinate`, falls back to `Robot/SaveRobotParameter` on 404.
+
 **ZH:** 设置默认载荷/工具/用户坐标系槽位。
+- `SetDefaultPayloadId` 转发至 `SetPayload`（`Robot/setPayload`，新旧固件均支持）。
+- `SetDefaultToolId` 优先新接口 `Robot/setDefaultTool`，404 时回退到 `Robot/SaveRobotParameter`。
+- `SetDefaultUserCoordinateId` 优先新接口 `Robot/setDefaultCoordinate`，404 时回退到 `Robot/SaveRobotParameter`。
 
 ```csharp
 await robot.SetDefaultToolId(2);
@@ -923,8 +930,8 @@ public Task<CommonResponse> SaveToolFrames(IReadOnlyList<RobotFrame> frames)
 public async Task<CommonResponse> SetToolFrame(int frameId, RobotFrame frame)
 ```
 
-**EN:** Save the full tool frame table (must include id 0~15, id=0 must be all zeros) / Modify a single tool frame (read-then-write, id 1~15 only).
-**ZH:** 保存完整工具坐标系表（必须包含 id 0~15，id=0 必须全零）/ 修改单个工具坐标系（先读后写，仅 id 1~15）。
+**EN:** Save the full tool frame table (must include id 0~15, id=0 must be all zeros) / Modify a single tool frame (read-then-write, id 1~15 only). Uses new API `Robot/setTools` (db includes `defaultToolId` + `Tool` array), falls back to `Robot/SaveRobotParameter` on 404.
+**ZH:** 保存完整工具坐标系表（必须包含 id 0~15，id=0 必须全零）/ 修改单个工具坐标系（先读后写，仅 id 1~15）。优先新接口 `Robot/setTools`（db 含 `defaultToolId` + `Tool` 数组），404 时回退到 `Robot/SaveRobotParameter`。
 
 ```csharp
 // Set single tool frame / 设置单个工具坐标系
@@ -936,17 +943,19 @@ await robot.SetToolFrame(1, new RobotFrame
 
 ---
 
-### SavePayloadFrames / SetPayloadFrame
+### SavePayloadFrames / SetPayloadFrame `[Obsolete]`
 
 ```csharp
+[Obsolete("New firmware removed Payload table write via SaveRobotParameter; use SetPayload(payloadId).")]
 public Task<CommonResponse> SavePayloadFrames(IReadOnlyList<RobotPayloadFrame> frames)
 public async Task<CommonResponse> SetPayloadFrame(int frameId, RobotPayloadFrame frame)
 ```
 
-**EN:** Save full payload frame table / Modify single payload frame (id 1~15).
-**ZH:** 保存完整载荷坐标系表 / 修改单个载荷坐标系（id 1~15）。
+**EN:** Save full payload frame table / Modify single payload frame (id 1~15). **Obsolete**: new firmware removed `Robot/SaveRobotParameter` Payload write capability. Use `SetPayload(payloadId)` instead.
+**ZH:** 保存完整载荷坐标系表 / 修改单个载荷坐标系（id 1~15）。**已过时**：新固件已移除 `Robot/SaveRobotParameter` 的 Payload 写入能力，请使用 `SetPayload(payloadId)`。
 
 ```csharp
+// Obsolete - only works on legacy firmware / 已过时 - 仅旧固件可用
 await robot.SetPayloadFrame(1, new RobotPayloadFrame
 {
     Id = 1, M = 2.5, Mx = 0, My = 0, Mz = 50
@@ -962,8 +971,8 @@ public Task<CommonResponse> SaveUserCoordinateFrames(IReadOnlyList<RobotFrame> f
 public async Task<CommonResponse> SetUserCoordinateFrame(int frameId, RobotFrame frame)
 ```
 
-**EN:** Save full user coordinate frame table / Modify single user coordinate frame (id 1~15).
-**ZH:** 保存完整用户坐标系表 / 修改单个用户坐标系（id 1~15）。
+**EN:** Save full user coordinate frame table / Modify single user coordinate frame (id 1~15). Uses new API `Robot/setCoordinates` (db includes `defaultCoordinateId` + `Coordinate` array), falls back to `Robot/SaveRobotParameter` on 404.
+**ZH:** 保存完整用户坐标系表 / 修改单个用户坐标系（id 1~15）。优先新接口 `Robot/setCoordinates`（db 含 `defaultCoordinateId` + `Coordinate` 数组），404 时回退到 `Robot/SaveRobotParameter`。
 
 ```csharp
 await robot.SetUserCoordinateFrame(1, new RobotFrame

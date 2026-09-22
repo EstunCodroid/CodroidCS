@@ -24,6 +24,7 @@ Codroid 机器人控制器的 **C# SDK**：通过 TCP/UDP 与 JSON 协议与控�
 | `CodroidTestNet462/` | 控制台示例程序（net462），面向 .NET Framework 4.6.2+ |
 | `CodroidCRITest/` | CRI 实时控制示例程序，演示轨迹规划与 UDP CommandData 周期下发 |
 | `CodroidCRITestNet462/` | CRI 实时控制示例程序（net462），面向 .NET Framework 4.6.2+ |
+| `examples/ForceControlTest/` | 力控接口测试程序（net462 / net6.0 / net8.0） |
 
 ## 构建 SDK
 
@@ -51,6 +52,25 @@ dotnet run --project CodroidTestNet8/CodroidTestNet8.csproj -- register 192.168.
 ```
 
 更多子命令与说明见 `CodroidTestNet8/Program.cs` 文件顶部注释。
+
+## 力控测试
+
+力控接口测试工程同时面向 **net462**、**net6.0** 与 **net8.0**。Linux / macOS 上运行 `net6.0` 或 `net8.0`；`net462` 仅用于 Windows .NET Framework 4.6.2+。
+
+```bash
+dotnet run --project examples/ForceControlTest/ForceControlTest.csproj -f net8.0 -- 192.168.1.136 state
+dotnet run --project examples/ForceControlTest/ForceControlTest.csproj -f net6.0 -- 192.168.1.136 state
+```
+
+常用模式：
+
+- `state`：读取 `GetForceState()` 与单字段 getter，例如 `GetForceStateEnabled()`
+- `calibration`：执行 `ZeroForceCalibration(calibrationTimeMs)`
+- `safety`：设置过力保护与力数据健康监控
+- `compliance` / `constant`：进入柔顺或恒力模式，测试 `TuneForceParams`
+- `contact --allow-motion`：执行接触检测，涉及运动，必须显式追加 `--allow-motion`
+
+当前 `InitForceControl()` 固定下发导纳算法 `algo=1`，不开放算法参数；旧 `FTSensorDriftCalibration` 已移除。
 
 ## 在自己的项目中引用
 
@@ -239,7 +259,7 @@ CRI UDP 线上单位是 m/rad，SDK 对外统一使用 mm/deg；`CriRealtimeDisp
 从 2.1.2 版本开始，SDK 新增 `.NET Framework 4.6.2+` 目标，适用于 WinForms / WPF / 老 .NET Framework 项目。
 
 ```xml
-<PackageReference Include="Codroidsdk" Version="2.1.8" />
+<PackageReference Include="Codroidsdk" Version="2.1.11" />
 ```
 
 注意事项：
@@ -248,6 +268,29 @@ CRI UDP 线上单位是 m/rad，SDK 对外统一使用 mm/deg；`CriRealtimeDisp
 - 推荐 `.NET Framework 4.7.2` 或 `4.8`；最低支持 `4.6.2`，不承诺 `4.6.0` / `4.6.1`。
 - `net462` 下 CRI 实时控制默认频率为 **250Hz**（`periodMs=4`），可满足常规应用场景。
 - `periodMs != 4`、500Hz、1000Hz 不作为 `net462` 默认 SLA，需要现场压测验证。
+
+## 文档目录
+
+`docs/` 目录下包含完整的 API 参考和开发指南：
+
+| 文档 | 说明 |
+|---|---|
+| [01-quick-start.md](docs/01-quick-start.md) | 快速上手：安装、连接、第一个程序、运行示例项目 |
+| [02-concepts.md](docs/02-concepts.md) | 核心概念：TCP/UDP 通信、JSON 协议、单位换算、线程安全 |
+| [03-api-reference-codroidclient.md](docs/03-api-reference-codroidclient.md) | CodroidClient 完整 API：连接、工程、脚本、IO、寄存器、机器人设置等 |
+| [04-api-reference-motion.md](docs/04-api-reference-motion.md) | 运动控制 API：MovJ/MovL/MovC/Move、Sync 系列、运动学换算 |
+| [05-api-reference-types.md](docs/05-api-reference-types.md) | 数据类型：RobotFrame、RobotPayloadFrame、RobotParameters 等 |
+| [06-api-reference-cri.md](docs/06-api-reference-cri.md) | CRI 实时接口：数据推送、实时控制、CriRealtimeDispatcher、轨迹生成 |
+| [07-api-reference-io-register.md](docs/07-api-reference-io-register.md) | IO 与寄存器 API：DI/DO/AI/AO/Group IO、寄存器读写 |
+| [08-api-reference-utilities.md](docs/08-api-reference-utilities.md) | 工具类：ConsoleUtf8、CRC 校验等辅助功能 |
+| [09-net462-notes.md](docs/09-net462-notes.md) | .NET Framework 4.6.2+ 注意事项与兼容性说明 |
+| [10-api-reference-force-control.md](docs/10-api-reference-force-control.md) | 力控接口 API：零力标定、柔顺控制、恒力控制、接触检测 |
+| [11-deployment-guide.md](docs/11-deployment-guide.md) | SDK 部署指南：环境要求、编译输出、DLL 复制与 NuGet 部署 |
+
+另有中英文 SDK 完整手册：
+
+- [CodroidCS-SDK-Manual-v2.1.11-zh.md](docs/CodroidCS-SDK-Manual-v2.1.11-zh.md) — 中文手册
+- [CodroidCS-SDK-Manual-v2.1.11-en.md](docs/CodroidCS-SDK-Manual-v2.1.11-en.md) — English manual
 
 ## 仓库地址
 

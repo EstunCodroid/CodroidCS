@@ -1,5 +1,40 @@
 # Codroid C# SDK 版本说明
 
+## v2.1.12（2026-08-21）
+
+### 变更
+
+- **机器人设置接口适配新固件 API**（协议 2.2.9）：
+  - `GetRobotParameters`：优先新接口 `Robot/getTools` + `Robot/getCoordinates`，404 时自动回退到旧接口 `Robot/GetRobotParameter`（协议 19.7）。注意：新接口不返回 Payload 数据。
+  - `SetDefaultToolId`：优先 `Robot/setDefaultTool`，404 回退 `Robot/SaveRobotParameter`
+  - `SetDefaultUserCoordinateId`：优先 `Robot/setDefaultCoordinate`，404 回退 `Robot/SaveRobotParameter`
+  - `SaveToolFrames`：优先 `Robot/setTools`（db 含 `defaultToolId` + `Tool` 数组），404 回退
+  - `SaveUserCoordinateFrames`：优先 `Robot/setCoordinates`（db 含 `defaultCoordinateId` + `Coordinate` 数组），404 回退
+  - `SetDefaultPayloadId`：改为转发至 `SetPayload`（`Robot/setPayload`，新旧固件均支持）
+- **`SavePayloadFrames` / `SetPayloadFrame` 标记 `[Obsolete]`**：新固件已移除 `Robot/SaveRobotParameter` 的 Payload 写入能力，请使用 `SetPayload(payloadId)` 代替
+- **`RobotFrame` 新增字段**：`Name`（工具名称）、`XOffset`/`YOffset`/`ZOffset`（工具偏置，mm），与本地文档 2.2.9 对齐
+- **JSON 序列化修复**：`RobotFrame` / `RobotPayloadFrame` 属性添加 `[JsonPropertyName]` 小写映射，修复控制器 `type must be number` 错误
+
+### 兼容性
+
+- 新旧固件均可使用，SDK 自动探测接口可用性（404 回退），调用方无需修改代码
+
+---
+
+## v2.1.11（2026-07-13）
+
+### 新增
+
+- **力控接口更新**：新增 `ZeroForceCalibration`、`InitForceControl`、`StartForceControl`、`StopForceControl`、`TuneForceParams`、`StartContactDetection`、`SetOverforceProtection`、`SetForceDataHealth`、`GetForceState` 及单字段状态 getter
+- **力控测试工程**：新增 `examples/ForceControlTest`，同时覆盖 `net462`、`net6.0` 与 `net8.0`
+
+### Breaking Change
+
+- **移除 `FTSensorDriftCalibration`**：新协议使用 `ZeroForceCalibration(calibrationTimeMs)`
+- **`InitForceControl` 固定导纳**：当前固定下发 `algo=1`，不开放算法参数
+
+---
+
 ## v2.1.10（2026-06-03）
 
 ### Breaking Change

@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // CodroidTestNet8 — 控制台示例程序（net8.0）；net6.0 版见 CodroidTestNet6/Program.cs
 // -----------------------------------------------------------------------------
 // 【默认：完整套件】无子命令即跑全部 7 段（含 RobotStatus 订阅 10 秒）
@@ -17,6 +17,7 @@
 //   dotnet run --project CodroidTestNet8/CodroidTestNet8.csproj -- robotstatus [ip] // 仅订阅 publish/RobotStatus，收 10 秒推送
 //   dotnet run --project CodroidTestNet8/CodroidTestNet8.csproj -- motion [ip]      // 或 s20 / movecri：四组合+矩形路径
 //   dotnet run --project CodroidTestNet8/CodroidTestNet8.csproj -- robotparam [ip] // 机器人设置 19.x（Get/SaveRobotParameter）
+//   dotnet run --project CodroidTestNet8/CodroidTestNet8.csproj -- robotparamfull [ip] // 机器人设置完整测试（19.1~19.7 全部接口）
 //   dotnet run --project CodroidTestNet8/CodroidTestNet8.csproj -- syncmotion [ip] // 阻塞运动 Sync（CRI 新鲜度+到位判定）
 // =============================================================================
 
@@ -34,7 +35,7 @@ namespace Program;
 internal static class Program
 {
     /// <summary>未传 IP 时使用的默认控制器地址（请按现场修改）。</summary>
-    private const string DefaultRobotIp = "192.168.8.136";
+    private const string DefaultRobotIp = "192.168.1.136";
 
     /// <summary>程序入口：无子命令时跑完整套件；带子命令时只跑对应单项。</summary>
     private static async Task Main(string[] args)
@@ -68,6 +69,9 @@ internal static class Program
             case RunMode.RobotParameterTest:
                 await RunRobotParameterTest(robotIp);
                 return;
+            case RunMode.RobotParameterFullTest:
+                await CodroidTestNet8.RobotSettingsFullTest.Run(robotIp);
+                return;
             case RunMode.SyncMotionTest:
                 await RunSyncMotionTest(robotIp);
                 return;
@@ -88,6 +92,7 @@ internal static class Program
         RegisterTest,
         RobotStatusPublishDemo,
         RobotParameterTest,
+        RobotParameterFullTest,
         SyncMotionTest
     }
 
@@ -240,6 +245,17 @@ internal static class Program
             return RunMode.RobotParameterTest;
         }
 
+        if (list.Count > 0 && IsRobotParameterFullCommand(list[0]))
+        {
+            list.RemoveAt(0);
+            if (list.Count > 0)
+            {
+                robotIp = list[0];
+            }
+
+            return RunMode.RobotParameterFullTest;
+        }
+
         if (list.Count > 0 && IsSyncMotionCommand(list[0]))
         {
             list.RemoveAt(0);
@@ -297,6 +313,10 @@ internal static class Program
         string.Equals(token, "robotparam", StringComparison.OrdinalIgnoreCase)
         || string.Equals(token, "robotsettings", StringComparison.OrdinalIgnoreCase)
         || string.Equals(token, "settings", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRobotParameterFullCommand(string token) =>
+        string.Equals(token, "robotparamfull", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(token, "robotsettingsfull", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSyncMotionCommand(string token) =>
         string.Equals(token, "syncmotion", StringComparison.OrdinalIgnoreCase)
@@ -393,7 +413,7 @@ internal static class Program
         const string model = "S20-180-ECO_V2";
         var robot = new CodroidClient(robotIp);
 
-        const string localUdpIp = "192.168.8.150";
+        const string localUdpIp = "192.168.1.150";
         const int localUdpPort = 18888;
 
         using var printCts = new CancellationTokenSource();
@@ -784,7 +804,7 @@ internal static class Program
     /// </summary>
     private static async Task RunSyncMotionTest(string robotIp)
     {
-        const string localUdpIp = "192.168.8.150";
+        const string localUdpIp = "192.168.1.150";
         const int localUdpPort = 18888;
 
         var robot = new CodroidClient(robotIp);
@@ -1337,7 +1357,7 @@ internal static class Program
         var robot = new CodroidClient(robotIp);
 
         // 本机网卡 IP：控制器会把 CRI 实时包推到这个地址；请改成你 PC 在机器人网段上的地址
-        const string localUdpIp = "192.168.8.150";
+        const string localUdpIp = "192.168.1.150";
         const int localUdpPort = 18888;
 
         var data = robot.Data;

@@ -1,15 +1,13 @@
 // =============================================================================
-// CodroidCRITest — CRI 实时控制 + 自动轨迹规划 联调
+// CodroidCRITestNet462 — CRI 实时控制 + 自动轨迹规划 联调 (net462)
 // -----------------------------------------------------------------------------
 // 用法：
-//   dotnet run --project CodroidCRITest                     // 关节 → 笛卡尔 → 路径 全部跑
-//   dotnet run --project CodroidCRITest -- joint            // 仅关节
-//   dotnet run --project CodroidCRITest -- cart             // 仅笛卡尔（同 cartesian）
-//   dotnet run --project CodroidCRITest -- path             // 仅自定义 4 点路径
-//   dotnet run --project CodroidCRITest -- batch            // 从 CSV 读取位姿，用 Move 逐条下发
-//   dotnet run --project CodroidCRITest -- script           // 从 CSV 读取位姿，用 RunScript 下发脚本
-//   dotnet run --project CodroidCRITest -- joint 192.168.8.10
-//   dotnet run --project CodroidCRITest -- cart  192.168.8.10 192.168.8.150
+//   dotnet run --project CodroidCRITestNet462                     // 关节 → 笛卡尔 → 路径 全部跑
+//   dotnet run --project CodroidCRITestNet462 -- joint            // 仅关节
+//   dotnet run --project CodroidCRITestNet462 -- cart             // 仅笛卡尔（同 cartesian）
+//   dotnet run --project CodroidCRITestNet462 -- path             // 仅自定义 4 点路径
+//   dotnet run --project CodroidCRITestNet462 -- joint 192.168.8.10
+//   dotnet run --project CodroidCRITestNet462 -- cart  192.168.8.10 192.168.8.150
 //
 // 可选轨迹覆盖（与位置参数同时给）：
 //   --speed N        关节段单位 deg/s（默认 30）；笛卡尔段单位 mm/s（默认 80）
@@ -17,9 +15,9 @@
 //   --duration N     该段总时长（秒），与 --speed 互斥
 //
 // 示例：
-//   dotnet run --project CodroidCRITest -- cart --speed 120 --accel 600
-//   dotnet run --project CodroidCRITest -- path 192.168.8.10 192.168.8.150 --speed 50
-//   dotnet run --project CodroidCRITest -- cart --duration 6
+//   dotnet run --project CodroidCRITestNet462 -- cart --speed 120 --accel 600
+//   dotnet run --project CodroidCRITestNet462 -- path 192.168.8.10 192.168.8.150 --speed 50
+//   dotnet run --project CodroidCRITestNet462 -- cart --duration 6
 //
 // 关节段：current → (0,0,90,0,90,0) → (0,0,0,0,0,0) → (0,0,90,0,90,0)
 // 笛卡尔段（YZ 平面矩形，回到原点；姿态保持）：
@@ -34,14 +32,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Codroid;
 
-namespace CodroidCRITest;
+namespace CodroidCRITestNet462;
 
 internal static class Program
 {
@@ -53,7 +49,7 @@ internal static class Program
     private const int RealtimePeriodMs = 4;
     private const double SampleFrequencyHz = 1000.0 / RealtimePeriodMs;
     private const int RealtimeFilterType = 1;
-    private const int RealtimeStartBuffer = 1;
+    private const int RealtimeStartBuffer = 5;
 
     // 默认运动学参数（保守）。轨迹生成时仍可被命令行覆盖；这里只给值。
     private const double JointSpeedDegPerSec = 30.0;
@@ -89,12 +85,6 @@ internal static class Program
                 case "cart":
                 case "cartesian":
                     await RunCartesian(opts);
-                    break;
-                case "batch":
-                    await RunBatchMove(opts);
-                    break;
-                case "script":
-                    await RunScriptMove(opts);
                     break;
                 case "path":
                     await RunPath(opts);
@@ -143,7 +133,6 @@ internal static class Program
     // -------------------------------------------------------------------------
     // 关节段
     // -------------------------------------------------------------------------
-    
     private static async Task RunJoint(CliOptions opts)
     {
         var req = BuildRequest(
@@ -191,7 +180,6 @@ internal static class Program
             try { robot.Disconnect(); } catch { /* ignore */ }
         }
     }
-    
 
     // -------------------------------------------------------------------------
     // 笛卡尔段
@@ -231,7 +219,7 @@ internal static class Program
             var p3 = Translate(p2, 0,    0, +200); // z+ 回到原 z
             var p4 = Translate(p3, 0, +200,    0); // y+ 回到原点
 
-            var waypoints = new[] { p0, p1,p2,p3,p4 };
+            var waypoints = new[] { p0, p1, p2, p3, p4 };
             for (int i = 0; i < waypoints.Length; i++)
                 PrintVector6($"  P{i}", waypoints[i]);
 
@@ -249,186 +237,6 @@ internal static class Program
         {
             try { robot.Disconnect(); } catch { /* ignore */ }
         }
-    }
-
-    // -------------------------------------------------------------------------
-    // 批量 Move 下发：从 CSV 读取位姿，用 MovL 逐点直线运动
-    // -------------------------------------------------------------------------
-    private static async Task RunBatchMove(CliOptions opts)
-    {
-        double speed = opts.Speed ?? CartesianSpeedMmPerSec;
-        double accel = opts.Acceleration ?? CartesianAccelMmPerSec2;
-
-        // 默认读取项目根目录 varspoint.csv
-        string csvPath = Path.Combine(AppContext.BaseDirectory, "varspoint.csv");
-        if (!File.Exists(csvPath))
-            csvPath = Path.Combine(Directory.GetCurrentDirectory(), "varspoint.csv");
-        if (!File.Exists(csvPath))
-        {
-            PrintErr($"找不到位姿文件: varspoint.csv（已搜索 {AppContext.BaseDirectory} 和 {Directory.GetCurrentDirectory()}）");
-            return;
-        }
-
-        PrintBanner($"批量 Move 下发  |  控制器: {opts.RobotIp}  |  本机 UDP: {opts.LocalIp}:{DefaultLocalUdpPort}", ConsoleColor.White);
-        Console.WriteLine($"  位姿文件: {csvPath}");
-        Console.WriteLine($"  规划: movL / 速度 {speed:F1} mm/s / 加速度 {accel:F1} mm/s²");
-
-        var poses = ParsePoseCsv(csvPath);
-        Console.WriteLine($"  解析: {poses.Count} 个笛卡尔位姿");
-        if (poses.Count == 0)
-        {
-            PrintErr("CSV 中无有效 cp 点。");
-            return;
-        }
-        for (int i = 0; i < poses.Count; i++)
-            PrintVector6($"  P{i + 1}", poses[i]);
-
-        var robot = new CodroidClient(opts.RobotIp);
-        try
-        {
-            await ConnectAndStartCriPush(robot, opts.LocalIp, DefaultLocalUdpPort);
-
-            PrintStep(2, "等待首帧 CRI，读取当前 TCP 位姿");
-            var p0 = await ReadCurrentTcpPose(robot, TimeSpan.FromMilliseconds(FirstFrameTimeoutMs));
-            PrintVector6("当前 TCP 位姿 (mm + deg)", p0);
-
-            // 用当前位姿替换 CSV 首点，确保从当前位置出发
-            poses[0] = p0;
-            PrintVector6("替换后首点（=当前位姿）", poses[0]);
-
-            await Countdown(3, "即将批量下发 Move 指令");
-
-            int batchCount = poses.Count - 1;
-            PrintStep(3, $"一次性下发 {batchCount} 条 MovL 指令（跳过首点=当前位姿）…");
-            var instructions = poses.Skip(1).Take(batchCount).Select(p => MoveInstruction.MovL(
-                CartesianPoint.MmDeg(p),
-                speed,
-                accel
-            )).ToList();
-
-            var sw = Stopwatch.StartNew();
-            await robot.Move(instructions);
-            sw.Stop();
-            PrintOk($"Move 指令已下发 {instructions.Count} 条，耗时 {sw.Elapsed.TotalSeconds:F2}s");
-
-            PrintStep(4, "等待机器人运动完成（InMotion 停稳）…");
-            await WaitForMotionSettled(robot, TimeSpan.FromSeconds(300));
-            PrintOk("运动完成。");
-
-            PrintStep(99, "关闭 CRI 数据推送");
-            await robot.StopCriDataPush(opts.LocalIp, DefaultLocalUdpPort);
-            PrintOk("批量 Move 段完成。");
-        }
-        finally
-        {
-            try { robot.Disconnect(); } catch { /* ignore */ }
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // 脚本下发：从 CSV 读取位姿，用 RunScript 一次性下发 movL 脚本
-    // -------------------------------------------------------------------------
-    private static async Task RunScriptMove(CliOptions opts)
-    {
-        // 脚本默认参数（与用户提供的脚本语法一致）
-        double speed = opts.Speed ?? 1000;
-        double accel = opts.Acceleration ?? 1000;
-        const double Blend = 15;
-
-        string csvPath = Path.Combine(AppContext.BaseDirectory, "varspoint.csv");
-        if (!File.Exists(csvPath))
-            csvPath = Path.Combine(Directory.GetCurrentDirectory(), "varspoint.csv");
-
-        var poses = ParsePoseCsv(csvPath);
-
-        PrintBanner($"脚本下发  |  控制器: {opts.RobotIp}  |  本机 UDP: {opts.LocalIp}:{DefaultLocalUdpPort}", ConsoleColor.White);
-        Console.WriteLine($"  位姿文件: {csvPath}");
-        Console.WriteLine($"  规划: movL / 速度 {speed:F0} mm/s / 加速度 {accel:F0} mm/s² / 融合 {Blend:F0} mm");
-        Console.WriteLine($"  解析: {poses.Count} 个笛卡尔位姿");
-        for (int i = 0; i < poses.Count; i++)
-            PrintVector6($"  P{i + 1,-28}", poses[i]);
-
-        // 构建 vars: p1, p2, ..., pN
-        var vars = new Dictionary<string, object>();
-        for (int i = 0; i < poses.Count; i++)
-            vars[$"p{i + 1}"] = poses[i];
-
-        // 构建脚本: movL(p1,{v=1000,a=1000,b=15}) ... end
-        var sb = new StringBuilder();
-        for (int i = 0; i < poses.Count; i++)
-            sb.AppendLine($"movL(p{i + 1},{{v={speed:F0},a={accel:F0},b={Blend:F0}}})");
-        string mainScript = sb.ToString();
-
-        Console.WriteLine($"  脚本: {poses.Count} 条 movL 指令");
-        Console.WriteLine("  脚本预览（前 3 行）:");
-        for (int i = 0; i < Math.Min(3, poses.Count); i++)
-            Console.WriteLine($"    movL(p{i + 1},{{v={speed:F0},a={accel:F0},b={Blend:F0}}})");
-
-        var robot = new CodroidClient(opts.RobotIp);
-        try
-        {
-            await ConnectAndStartCriPush(robot, opts.LocalIp, DefaultLocalUdpPort);
-
-            PrintStep(2, "等待首帧 CRI，读取当前 TCP 位姿");
-            var currentPose = await ReadCurrentTcpPose(robot, TimeSpan.FromMilliseconds(FirstFrameTimeoutMs));
-            PrintVector6("当前 TCP 位姿 (mm + deg)", currentPose);
-
-            // 用 CRI 实时位姿替换首点，避免跳变
-            vars["p1"] = currentPose;
-            PrintOk("已用当前位姿替换 p1");
-
-            await Countdown(3, "即将进入远程脚本模式并下发脚本");
-
-            PrintStep(3, "停止 CRI 推送 + 停止当前工程");
-            await robot.StopCriDataPush(opts.LocalIp, DefaultLocalUdpPort);
-            PrintOk("CRI 数据推送已停止");
-            try
-            {
-                await robot.StopProject();
-                PrintOk("StopProject 已执行");
-            }
-            catch (CodroidCommandException ex)
-            {
-                Console.WriteLine($"  ! StopProject 警告: {ex.Message}（可忽略）");
-            }
-            await Task.Delay(1000);
-
-            PrintStep(4, $"RunScript: {poses.Count} 条 movL 指令");
-            var sw = Stopwatch.StartNew();
-            await robot.RunScript(mainScript, vars: vars);
-            sw.Stop();
-            PrintOk($"脚本已下发，耗时 {sw.Elapsed.TotalSeconds:F2}s");
-
-            PrintStep(5, "等待机器人运动完成（InMotion 停稳）…");
-            await WaitForMotionSettled(robot, TimeSpan.FromSeconds(600));
-            PrintOk("运动完成。");
-
-            PrintStep(99, "关闭 CRI 数据推送");
-            await robot.StopCriDataPush(opts.LocalIp, DefaultLocalUdpPort);
-            PrintOk("脚本运动段完成。");
-        }
-        finally
-        {
-            try { robot.Disconnect(); } catch { /* ignore */ }
-        }
-    }
-
-    /// <summary>从 CSV 解析笛卡尔位姿，跳过非 cp 行。每行格式: name,postype,v1,v2,v3,v4,v5,v6</summary>
-    private static List<double[]> ParsePoseCsv(string path)
-    {
-        var result = new List<double[]>();
-        foreach (var line in File.ReadAllLines(path))
-        {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var cols = line.Split(',');
-            if (cols.Length < 8) continue;
-            if (!cols[1].Trim().Equals("cp", StringComparison.OrdinalIgnoreCase)) continue;
-            var pose = new double[6];
-            for (int i = 0; i < 6; i++)
-                pose[i] = double.Parse(cols[2 + i].Trim(), CultureInfo.InvariantCulture);
-            result.Add(pose);
-        }
-        return result;
     }
 
     // -------------------------------------------------------------------------
@@ -464,8 +272,7 @@ internal static class Program
             PrintVector6("当前 TCP 位姿 (mm + deg)", p0);
             PrintVector6("参考 home（仅打印对照）", pHome);
 
-            //var waypoints = new[] { p0, p1, p2, p3, pHome };
-            var waypoints = new[] { p0, p1 };
+            var waypoints = new[] { p0, p1, p2, p3, pHome };
             for (int i = 0; i < waypoints.Length; i++)
                 PrintVector6($"  P{i}", waypoints[i]);
 
@@ -555,7 +362,7 @@ internal static class Program
                     Position = seg[k].Position,
                 });
             }
-            tBase += seg[^1].TimeSeconds;
+            tBase += seg[seg.Count - 1].TimeSeconds;
         }
         return result;
     }
@@ -579,19 +386,12 @@ internal static class Program
         await WaitForRealtimeControl(robot, TimeSpan.FromMilliseconds(RealtimeReadyTimeoutMs));
         PrintOk("RealTimeControlMode = true");
 
-        PrintStep(4, $"UDP 周期下发 {trajectory.Count} 帧 / {trajectory[^1].TimeSeconds:F2}s @ {RealtimePeriodMs}ms");
+        PrintStep(4, $"UDP 周期下发 {trajectory.Count} 帧 / {trajectory[trajectory.Count - 1].TimeSeconds:F2}s @ {RealtimePeriodMs}ms");
         var sw = Stopwatch.StartNew();
         try
         {
             using var dispatcher = new CriRealtimeDispatcher(robotIp);
-        
             await dispatcher.SendTrajectory(trajectory, space, RealtimePeriodMs);
-
-            // SendTrajectory 内部已在最后一帧后等待一个周期；
-            // 此处再等待固定缓冲，确保控制器有充足时间执行完最后一个规划点
-            int bufferMs = RealtimePeriodMs * 3;
-            PrintStep(5, $"等待机器人到达末端点（缓冲 {bufferMs}ms）…");
-            await Task.Delay(bufferMs);
         }
         finally
         {
@@ -662,27 +462,6 @@ internal static class Program
         throw new TimeoutException("等待 RealTimeControlMode=true 超时。");
     }
 
-    private static async Task WaitForMotionSettled(CodroidClient robot, TimeSpan timeout)
-    {
-        var sw = Stopwatch.StartNew();
-        int settledCount = 0;
-        while (sw.Elapsed < timeout)
-        {
-            var snap = robot.CriData;
-            if (!snap.InMotion)
-            {
-                settledCount++;
-                if (settledCount >= 5) return;
-            }
-            else
-            {
-                settledCount = 0;
-            }
-            await Task.Delay(50);
-        }
-        throw new TimeoutException("等待运动完成（InMotion 停稳）超时。");
-    }
-
     private static async Task Countdown(int seconds, string warning)
     {
         PrintWarn(warning + $"，{seconds} 秒后开始（Ctrl+C 取消）。");
@@ -743,7 +522,7 @@ internal static class Program
         if (queue.Count > 0)
         {
             var first = queue.Peek().ToLowerInvariant();
-            if (first is "joint" or "cart" or "cartesian" or "batch" or "script" or "path" or "all" or "help" or "-h" or "--help")
+            if (first is "joint" or "cart" or "cartesian" or "path" or "all" or "help" or "-h" or "--help")
             {
                 mode = queue.Dequeue().ToLowerInvariant();
                 if (mode is "help" or "-h" or "--help") return new CliOptions { Mode = "help" };
@@ -752,7 +531,7 @@ internal static class Program
         if (queue.Count > 0) robotIp = queue.Dequeue();
         if (queue.Count > 0) localIp = queue.Dequeue();
         if (queue.Count > 0)
-            throw new ArgumentException($"无法识别的多余参数：{string.Join(' ', queue)}");
+            throw new ArgumentException($"无法识别的多余参数：{string.Join(" ", queue)}");
 
         return new CliOptions
         {
@@ -768,15 +547,7 @@ internal static class Program
     private static void PrintUsage()
     {
         Console.WriteLine("用法:");
-        Console.WriteLine("  dotnet run --project CodroidCRITest -- [joint|cart|batch|script|path|all] [robotIp] [localIp] [选项]");
-        Console.WriteLine();
-        Console.WriteLine("模式:");
-        Console.WriteLine("  joint    关节实时轨迹");
-        Console.WriteLine("  cart     笛卡尔实时轨迹（CRI UDP）");
-        Console.WriteLine("  batch    从 CSV 读取位姿，用 Move 逐条下发（MovL）");
-        Console.WriteLine("  script   从 CSV 读取位姿，用 RunScript 一次性下发脚本");
-        Console.WriteLine("  path     自定义 4 点路径");
-        Console.WriteLine("  all      关节 → 笛卡尔 → 路径 全部跑");
+        Console.WriteLine("  dotnet run --project CodroidCRITestNet462 -- [joint|cart|path|all] [robotIp] [localIp] [选项]");
         Console.WriteLine();
         Console.WriteLine("可选轨迹覆盖（与位置参数同时给）:");
         Console.WriteLine("  --speed N      关节: deg/s（默认 30）；笛卡尔: mm/s（默认 80）");
@@ -786,10 +557,9 @@ internal static class Program
         Console.WriteLine($"默认: all  {DefaultRobotIp}  {DefaultLocalIp}");
         Console.WriteLine();
         Console.WriteLine("示例:");
-        Console.WriteLine("  dotnet run --project CodroidCRITest -- cart --speed 120 --accel 600");
-        Console.WriteLine("  dotnet run --project CodroidCRITest -- path 192.168.8.10 192.168.8.150 --speed 50");
-        Console.WriteLine("  dotnet run --project CodroidCRITest -- cart --duration 6");
-        Console.WriteLine("  dotnet run --project CodroidCRITest -- script 192.168.1.136 192.168.1.24 --speed 1000 --accel 1000");
+        Console.WriteLine("  dotnet run --project CodroidCRITestNet462 -- cart --speed 120 --accel 600");
+        Console.WriteLine("  dotnet run --project CodroidCRITestNet462 -- path 192.168.8.10 192.168.8.150 --speed 50");
+        Console.WriteLine("  dotnet run --project CodroidCRITestNet462 -- cart --duration 6");
     }
 
     // -------------------------------------------------------------------------
@@ -851,9 +621,9 @@ internal static class Program
             Console.WriteLine($"  {label}: 空轨迹");
             return;
         }
-        Console.WriteLine($"  {label}: {traj.Count} 帧, 总时长 {traj[^1].TimeSeconds:F3}s, 周期 {RealtimePeriodMs}ms");
+        Console.WriteLine($"  {label}: {traj.Count} 帧, 总时长 {traj[traj.Count - 1].TimeSeconds:F3}s, 周期 {RealtimePeriodMs}ms");
         PrintVector6("    首点", traj[0].Position);
-        PrintVector6("    末点", traj[^1].Position);
+        PrintVector6("    末点", traj[traj.Count - 1].Position);
     }
 
 }

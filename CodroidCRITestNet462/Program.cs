@@ -41,8 +41,8 @@ namespace CodroidCRITestNet462;
 
 internal static class Program
 {
-    private const string DefaultRobotIp = "192.168.8.136";
-    private const string DefaultLocalIp = "192.168.8.150";
+    private const string DefaultRobotIp = "192.168.1.136";
+    private const string DefaultLocalIp = "192.168.1.150";
     private const int DefaultLocalUdpPort = 18888;
 
     // 与 StartCriControl 的 durationMs 严格对齐：4 ms ↔ 250 Hz
@@ -386,12 +386,41 @@ internal static class Program
         await WaitForRealtimeControl(robot, TimeSpan.FromMilliseconds(RealtimeReadyTimeoutMs));
         PrintOk("RealTimeControlMode = true");
 
-        PrintStep(4, $"UDP 周期下发 {trajectory.Count} 帧 / {trajectory[trajectory.Count - 1].TimeSeconds:F2}s @ {RealtimePeriodMs}ms");
+        // 检查 CRI 错误码
+        var errBefore = robot.CriData.CriErrorCode;
+        if (errBefore != 0)
+            PrintWarn($"CRI 错误码（下发前）: {errBefore} — {DescribeCriError(errBefore)}");
+        else
+            PrintOk("CRI 错误码（下发前）: 0 — 正常");
+
+        // 打印首帧 SI 单位（调试用）
+        var p0 = trajectory[0].Position;
+        Console.Write("  [DEBUG] 首帧原始 (mm/deg): ");
+        Console.WriteLine($"[{string.Join(", ", p0.Select(x => x.ToString("F4")))}]");
+        if (space == TrajectorySpace.Cartesian)
+            Console.WriteLine($"  [DEBUG] 首帧 SI (m/rad):  x={p0[0]*1e-3:F6}, y={p0[1]*1e-3:F6}, z={p0[2]*1e-3:F6}, rx={p0[3]*Math.PI/180:F6}, ry={p0[4]*Math.PI/180:F6}, rz={p0[5]*Math.PI/180:F6}");
+        else
+            Console.WriteLine($"  [DEBUG] 首帧 SI (rad):    [{string.Join(", ", p0.Select(x => (x*Math.PI/180).ToString("F6")))}]");
+
+        PrintStep(4, $"UDP 周期下发 {trajectory.Count} 帧 / {trajectory[trajectory.Count - 1].TimeSeconds:F2}s @ {RealtimePeriodMs}ms → {robotIp}:9030");
         var sw = Stopwatch.StartNew();
         try
         {
             using var dispatcher = new CriRealtimeDispatcher(robotIp);
             await dispatcher.SendTrajectory(trajectory, space, RealtimePeriodMs);
+
+            // SendTrajectory 内部已在最后一帧后等待一个周期；
+            // 此处补偿 startBuffer 导致的执行滞后 + 额外缓冲，确保控制器执行完最后一个规划点再 StopCriControl
+            int bufferMs = RealtimePeriodMs * (RealtimeStartBuffer + 2);
+            PrintStep(5, $"等待机器人到达末端点（缓冲 {bufferMs}ms）…");
+            await Task.Delay(bufferMs);
+
+            // 检查 CRI 错误码（下发后）
+            var errAfter = robot.CriData.CriErrorCode;
+            if (errAfter != 0)
+                PrintWarn($"CRI 错误码（下发后）: {errAfter} — {DescribeCriError(errAfter)}");
+            else
+                PrintOk("CRI 错误码（下发后）: 0 — 正常");
         }
         finally
         {
@@ -625,5 +654,15 @@ internal static class Program
         PrintVector6("    首点", traj[0].Position);
         PrintVector6("    末点", traj[traj.Count - 1].Position);
     }
+
+    private static string DescribeCriError(byte code) => code switch
+    {
+        0 => "正常",
+        1 => "逆解失败（末端位姿无法转换为关节角）",
+        2 => "设置目标位置失败（会退出实时控制）",
+        4 => "UDP 指令包长度非法（须等于 64 字节）",
+        5 => "指令队列已满（缓冲 1024 点）",
+        _ => $"未知错误码 {code}"
+    };
 
 }

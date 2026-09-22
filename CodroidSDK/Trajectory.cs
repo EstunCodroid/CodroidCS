@@ -187,6 +187,9 @@ public static class TrajectoryGenerator
         double dt = 1.0 / req.FrequencyHz;
         int n = Math.Max(2, (int)Math.Ceiling(profile.T / dt) + 1);
 
+        // 检测起点/终点四元数是否相同，若相同则整段使用原始欧拉角避免往返误差
+        bool sameOrientation = EulerXyz.QuaternionApproxEqual(q0, qf);
+
         for (int k = 0; k < n; k++)
         {
             double t = Math.Min(k * dt, profile.T);
@@ -196,8 +199,28 @@ public static class TrajectoryGenerator
             double y = p0[1] + s * dy;
             double z = p0[2] + s * dz;
 
-            var q = EulerXyz.Slerp(q0, qf, s);
-            var (rx, ry, rz) = EulerXyz.FromQuaternion(q);
+            double rx, ry, rz;
+            if (sameOrientation)
+            {
+                // 姿态不变，直接线性插值，完全避免四元数往返
+                rx = p0[3] + s * (pf[3] - p0[3]);
+                ry = p0[4] + s * (pf[4] - p0[4]);
+                rz = p0[5] + s * (pf[5] - p0[5]);
+            }
+            else if (s <= 0)
+            {
+                // 端点使用原始欧拉角，避免四元数往返产生不同表示
+                rx = p0[3]; ry = p0[4]; rz = p0[5];
+            }
+            else if (s >= 1)
+            {
+                rx = pf[3]; ry = pf[4]; rz = pf[5];
+            }
+            else
+            {
+                var q = EulerXyz.Slerp(q0, qf, s);
+                (rx, ry, rz) = EulerXyz.FromQuaternion(q, p0[3], p0[4], p0[5]);
+            }
 
             yield return new TrajectoryPoint
             {
@@ -325,6 +348,13 @@ internal static class EulerXyz
     /// <summary>四元数 (w, x, y, z)，归一化。</summary>
     public readonly record struct Quaternion(double W, double X, double Y, double Z);
 
+    /// <summary>判断两个四元数是否近似相等（考虑 q 与 -q 等价）。</summary>
+    public static bool QuaternionApproxEqual(Quaternion a, Quaternion b)
+    {
+        double dot = a.W * b.W + a.X * b.X + a.Y * b.Y + a.Z * b.Z;
+        return Math.Abs(Math.Abs(dot) - 1.0) < 1e-12;
+    }
+
     public static Quaternion ToQuaternion(double rxDeg, double ryDeg, double rzDeg)
     {
         const double D2R = Math.PI / 180.0;
@@ -344,6 +374,23 @@ internal static class EulerXyz
 
     public static (double Rx, double Ry, double Rz) FromQuaternion(Quaternion q)
     {
+        return FromQuaternionCore(q, null);
+    }
+
+    /// <summary>
+    /// 从四元数提取欧拉角，并选择最接近 <paramref name="refRxDeg"/>/<paramref name="refRyDeg"/>/<paramref name="refRzDeg"/> 的等效表示。
+    /// 欧拉角存在多解：<c>(rx, ry, rz) ≡ (rx+π, π-ry, rz+π)</c>（等价旋转），
+    /// 此重载保证返回与参考角度最接近的那组，避免轨迹中的「姿态跳变」。
+    /// </summary>
+    public static (double Rx, double Ry, double Rz) FromQuaternion(
+        Quaternion q, double refRxDeg, double refRyDeg, double refRzDeg)
+    {
+        return FromQuaternionCore(q, (refRxDeg, refRyDeg, refRzDeg));
+    }
+
+    private static (double Rx, double Ry, double Rz) FromQuaternionCore(
+        Quaternion q, (double rx, double ry, double rz)? reference)
+    {
         const double R2D = 180.0 / Math.PI;
         double w = q.W, x = q.X, y = q.Y, z = q.Z;
         // R = Rz(γ)Ry(β)Rx(α) → R[2][0] = -sin β = 2(xz - wy)
@@ -361,7 +408,52 @@ internal static class EulerXyz
             rx = Math.Atan2(-2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + z * z));
             rz = 0.0;
         }
-        return (rx * R2D, ry * R2D, rz * R2D);
+
+        rx *= R2D;
+        ry *= R2D;
+        rz *= R2D;
+
+        // 如果有参考欧拉角，选择最接近的等效表示
+        if (reference.HasValue)
+        {
+            var (refRx, refRy, refRz) = reference.Value;
+            // 候选1: (rx, ry, rz)
+            // 候选2: (rx+180, 180-ry, rz+180) — 等价旋转
+            double rx2 = rx + 180.0;
+            double ry2 = 180.0 - ry;
+            double rz2 = rz + 180.0;
+
+            // 归一化到 [-180, 180]
+            rx2 = NormalizeAngle180(rx2);
+            ry2 = NormalizeAngle180(ry2);
+            rz2 = NormalizeAngle180(rz2);
+
+            double dist1 = AngleDistanceSq(rx, ry, rz, refRx, refRy, refRz);
+            double dist2 = AngleDistanceSq(rx2, ry2, rz2, refRx, refRy, refRz);
+
+            if (dist2 < dist1)
+                return (rx2, ry2, rz2);
+        }
+
+        return (rx, ry, rz);
+    }
+
+    /// <summary>将角度归一化到 [-180, 180] 度。</summary>
+    private static double NormalizeAngle180(double deg)
+    {
+        deg = deg % 360.0;
+        if (deg > 180.0) deg -= 360.0;
+        if (deg < -180.0) deg += 360.0;
+        return deg;
+    }
+
+    /// <summary>两组欧拉角之间的平方距离（简单欧氏距离，单位度²）。</summary>
+    private static double AngleDistanceSq(double rx1, double ry1, double rz1, double rx2, double ry2, double rz2)
+    {
+        double drx = rx1 - rx2;
+        double dry = ry1 - ry2;
+        double drz = rz1 - rz2;
+        return drx * drx + dry * dry + drz * drz;
     }
 
     public static Quaternion Slerp(Quaternion q0, Quaternion q1, double t)

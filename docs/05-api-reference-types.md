@@ -183,9 +183,9 @@ CriRealTimeData snapshot = data.Clone();
 
 **Robot Frame / 机器人坐标系**
 
-A sealed class representing a coordinate frame definition, used for both tool frames and user coordinate frames. Contains an ID and a 6-axis pose (position + orientation).
+A sealed class representing a coordinate frame definition, used for both tool frames and user coordinate frames. Contains an ID, a 6-axis pose (position + orientation), and optional tool-specific fields (name, offsets).
 
-一个密封类，表示坐标系定义，用于工具坐标系和用户坐标系。包含 ID 和六轴位姿（位置+姿态）。
+一个密封类，表示坐标系定义，用于工具坐标系和用户坐标系。包含 ID、六轴位姿（位置+姿态），以及工具帧可选字段（名称、偏置）。
 
 ### Properties / 属性
 
@@ -198,6 +198,10 @@ A sealed class representing a coordinate frame definition, used for both tool fr
 | `A` | `double` | Rotation around X axis (deg) / 绕 X 轴旋转（度） | 绕 X 轴的旋转角度 |
 | `B` | `double` | Rotation around Y axis (deg) / 绕 Y 轴旋转（度） | 绕 Y 轴的旋转角度 |
 | `C` | `double` | Rotation around Z axis (deg) / 绕 Z 轴旋转（度） | 绕 Z 轴的旋转角度 |
+| `Name` | `string?` | Tool/coordinate name (tool frames only, optional) / 工具/坐标系名称（仅工具帧，可选） | 工具帧名称，用户坐标系帧可留空 |
+| `XOffset` | `double` | Tool offset X (mm, optional, tool frames only) / 工具偏置 X（毫米，可选，仅工具帧） | 沿工具坐标系的偏置 |
+| `YOffset` | `double` | Tool offset Y (mm, optional, tool frames only) / 工具偏置 Y（毫米，可选，仅工具帧） | 沿工具坐标系的偏置 |
+| `ZOffset` | `double` | Tool offset Z (mm, optional, tool frames only) / 工具偏置 Z（毫米，可选，仅工具帧） | 沿工具坐标系的偏置 |
 
 ### Example / 示例
 

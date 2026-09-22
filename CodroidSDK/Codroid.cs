@@ -524,6 +524,237 @@ namespace Codroid
         public Task<CommonResponse> ClearSystemError() => SendCommandEmptyDb("System/clearError");
 
         /// <summary>
+        /// 六维力传感器零力校准 / 带载去皮（指令：<c>Robot/ZeroForceCalibration</c>）。
+        /// </summary>
+        public Task<CommonResponse> ZeroForceCalibration(int calibrationTimeMs = 1000)
+        {
+            return _TcpClient.SendCommand(NextId(), "Robot/ZeroForceCalibration", new { calibrationTimeMs });
+        }
+
+        /// <summary>
+        /// 进入力控前一次性配参。当前 C# SDK 固定下发导纳算法 <c>algo=1</c>，不开放 algo 入参。
+        /// </summary>
+        public Task<CommonResponse> InitForceControl(
+            ForceFrame frame,
+            IReadOnlyList<ForceAxisMode> axisMode,
+            object? compliance = null,
+            object? constantForce = null,
+            double[]? userFrameRpy = null,
+            double[]? desiredWrench = null,
+            object? forceLimit = null)
+        {
+            ValidateLength(axisMode, 6, nameof(axisMode));
+            var db = new Dictionary<string, object?>
+            {
+                ["algo"] = (int)ForceControlAlgo.Admittance,
+                ["frame"] = (int)frame,
+                ["axisMode"] = axisMode.Select(x => (int)x).ToArray()
+            };
+            if (compliance != null) db["compliance"] = compliance;
+            if (constantForce != null) db["constantForce"] = constantForce;
+            if (userFrameRpy != null) db["userFrameRpy"] = userFrameRpy;
+            if (desiredWrench != null) db["desiredWrench"] = desiredWrench;
+            if (forceLimit != null) db["forceLimit"] = forceLimit;
+            return _TcpClient.SendCommand(NextId(), "Robot/initForceControl", db);
+        }
+
+        /// <summary>
+        /// 启动力控（指令：<c>Robot/startForceControl</c>）。
+        /// </summary>
+        public Task<CommonResponse> StartForceControl() =>
+            _TcpClient.SendCommand(NextId(), "Robot/startForceControl", new { });
+
+        /// <summary>
+        /// 平滑停止力控（指令：<c>Robot/stopForceControl</c>）。
+        /// </summary>
+        public Task<CommonResponse> StopForceControl(int smoothTimeMs = 500) =>
+            _TcpClient.SendCommand(NextId(), "Robot/stopForceControl", new { smoothTimeMs });
+
+        /// <summary>
+        /// 在线调整力控参数（指令：<c>Robot/tuneForceParams</c>）。
+        /// </summary>
+        public Task<CommonResponse> TuneForceParams(
+            double[]? stiffness = null,
+            double[]? damping = null,
+            double[]? mass = null,
+            double[]? desiredForce = null,
+            double[]? kp = null,
+            double[]? kd = null,
+            double? rampTime = null)
+        {
+            var db = new Dictionary<string, object?>();
+            if (stiffness != null) db["stiffness"] = stiffness;
+            if (damping != null) db["damping"] = damping;
+            if (mass != null) db["mass"] = mass;
+            if (desiredForce != null) db["desiredForce"] = desiredForce;
+            if (kp != null) db["kp"] = kp;
+            if (kd != null) db["kd"] = kd;
+            if (rampTime != null) db["rampTime"] = rampTime.Value;
+            return _TcpClient.SendCommand(NextId(), "Robot/tuneForceParams", db);
+        }
+
+        /// <summary>
+        /// 启动接触检测（指令：<c>Robot/startContactDetection</c>）。
+        /// </summary>
+        public Task<CommonResponse> StartContactDetection(
+            double[] direction,
+            double? feedVelocity = null,
+            double? contactForceThreshold = null,
+            double? velDropRatio = null,
+            double? maxTravel = null,
+            double? timeoutMs = null)
+        {
+            ValidateLength(direction, 6, nameof(direction));
+            var db = new Dictionary<string, object?> { ["direction"] = direction };
+            if (feedVelocity != null) db["feedVelocity"] = feedVelocity.Value;
+            if (contactForceThreshold != null) db["contactForceThreshold"] = contactForceThreshold.Value;
+            if (velDropRatio != null) db["velDropRatio"] = velDropRatio.Value;
+            if (maxTravel != null) db["maxTravel"] = maxTravel.Value;
+            if (timeoutMs != null) db["timeoutMs"] = timeoutMs.Value;
+            return _TcpClient.SendCommand(NextId(), "Robot/startContactDetection", db);
+        }
+
+        /// <summary>
+        /// 设置过力保护（指令：<c>Robot/setOverforceProtection</c>）。
+        /// </summary>
+        public Task<CommonResponse> SetOverforceProtection(
+            bool? enable = null,
+            double[]? forceThreshold = null,
+            double? holdMs = null)
+        {
+            if (forceThreshold != null) ValidateLength(forceThreshold, 6, nameof(forceThreshold));
+            var db = new Dictionary<string, object?>();
+            if (enable != null) db["enable"] = enable.Value;
+            if (forceThreshold != null) db["forceThreshold"] = forceThreshold;
+            if (holdMs != null) db["holdMs"] = holdMs.Value;
+            return _TcpClient.SendCommand(NextId(), "Robot/setOverforceProtection", db);
+        }
+
+        /// <summary>
+        /// 设置力数据健康监控（指令：<c>Robot/setForceDataHealth</c>）。
+        /// </summary>
+        public Task<CommonResponse> SetForceDataHealth(
+            bool? enable = null,
+            double? timeoutMs = null,
+            double? maxPacketLossRatio = null,
+            int? packetLossWindow = null,
+            double? forceSaturation = null,
+            double? torqueSaturation = null)
+        {
+            var db = new Dictionary<string, object?>();
+            if (enable != null) db["enable"] = enable.Value;
+            if (timeoutMs != null) db["timeoutMs"] = timeoutMs.Value;
+            if (maxPacketLossRatio != null) db["maxPacketLossRatio"] = maxPacketLossRatio.Value;
+            if (packetLossWindow != null) db["packetLossWindow"] = packetLossWindow.Value;
+            if (forceSaturation != null) db["forceSaturation"] = forceSaturation.Value;
+            if (torqueSaturation != null) db["torqueSaturation"] = torqueSaturation.Value;
+            return _TcpClient.SendCommand(NextId(), "Robot/setForceDataHealth", db);
+        }
+
+        /// <summary>
+        /// 读取力控状态快照（指令：<c>Robot/getForceState</c>）。
+        /// </summary>
+        public async Task<ForceControlState> GetForceState()
+        {
+            var response = await _TcpClient.SendCommand(NextId(), "Robot/getForceState", string.Empty)
+                .ConfigureAwait(false);
+            return ParseForceControlState(response.db);
+        }
+
+        /// <summary>读取力控启用状态。</summary>
+        public async Task<bool> GetForceStateEnabled() => (await GetForceState().ConfigureAwait(false)).Enabled;
+        /// <summary>读取力控 pending 状态。</summary>
+        public async Task<bool> GetForceStatePending() => (await GetForceState().ConfigureAwait(false)).Pending;
+        /// <summary>读取力控算法编号。</summary>
+        public async Task<int> GetForceStateAlgo() => (await GetForceState().ConfigureAwait(false)).Algo;
+        /// <summary>读取力数据有效状态。</summary>
+        public async Task<bool> GetForceStateValid() => (await GetForceState().ConfigureAwait(false)).Valid;
+        /// <summary>读取接触检测状态。</summary>
+        public async Task<bool> GetForceStateIsContact() => (await GetForceState().ConfigureAwait(false)).IsContact;
+        /// <summary>读取过力保护触发状态。</summary>
+        public async Task<bool> GetForceStateIsOverforce() => (await GetForceState().ConfigureAwait(false)).IsOverforce;
+        /// <summary>读取力数据健康状态编号。</summary>
+        public async Task<int> GetForceStateHealth() => (await GetForceState().ConfigureAwait(false)).Health;
+        /// <summary>读取 TCP 坐标系下的六维力/力矩。</summary>
+        public async Task<double[]> GetForceStateWrenchTcp() => (await GetForceState().ConfigureAwait(false)).WrenchTcp;
+        /// <summary>读取基坐标系下的六维力/力矩。</summary>
+        public async Task<double[]> GetForceStateWrenchBase() => (await GetForceState().ConfigureAwait(false)).WrenchBase;
+        /// <summary>读取期望六维力/力矩。</summary>
+        public async Task<double[]> GetForceStateDesiredWrench() => (await GetForceState().ConfigureAwait(false)).DesiredWrench;
+        /// <summary>读取力跟踪误差。</summary>
+        public async Task<double[]> GetForceStateTrackError() => (await GetForceState().ConfigureAwait(false)).TrackError;
+        /// <summary>读取六个轴的力控模式。</summary>
+        public async Task<int[]> GetForceStateAxisMode() => (await GetForceState().ConfigureAwait(false)).AxisMode;
+
+        private static ForceControlState ParseForceControlState(JsonElement db)
+        {
+            var state = new ForceControlState();
+            if (db.ValueKind != JsonValueKind.Object)
+            {
+                return state;
+            }
+            state.Enabled = GetBool(db, "enabled");
+            state.Pending = GetBool(db, "pending");
+            state.Algo = GetInt(db, "algo");
+            state.Valid = GetBool(db, "valid");
+            state.IsContact = GetBool(db, "isContact");
+            state.IsOverforce = GetBool(db, "isOverforce");
+            state.Health = GetInt(db, "health");
+            state.WrenchTcp = GetDoubleArray(db, "wrenchTcp");
+            state.WrenchBase = GetDoubleArray(db, "wrenchBase");
+            state.DesiredWrench = GetDoubleArray(db, "desiredWrench");
+            state.TrackError = GetDoubleArray(db, "trackError");
+            state.AxisMode = GetIntArray(db, "axisMode");
+            return state;
+        }
+
+        private static bool GetBool(JsonElement db, string name)
+        {
+            if (!db.TryGetProperty(name, out var value))
+                return false;
+            return value.ValueKind == JsonValueKind.True;
+        }
+
+        private static int GetInt(JsonElement db, string name) =>
+            db.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var n)
+                ? n
+                : 0;
+
+        private static double[] GetDoubleArray(JsonElement db, string name)
+        {
+            if (!db.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
+                return new double[6];
+            var list = new List<double>();
+            foreach (var item in value.EnumerateArray())
+            {
+                list.Add(item.ValueKind == JsonValueKind.Number && item.TryGetDouble(out var v) ? v : 0.0);
+            }
+            while (list.Count < 6) list.Add(0.0);
+            return list.Take(6).ToArray();
+        }
+
+        private static int[] GetIntArray(JsonElement db, string name)
+        {
+            if (!db.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
+                return new int[6];
+            var list = new List<int>();
+            foreach (var item in value.EnumerateArray())
+            {
+                list.Add(item.ValueKind == JsonValueKind.Number && item.TryGetInt32(out var v) ? v : 0);
+            }
+            while (list.Count < 6) list.Add(0);
+            return list.Take(6).ToArray();
+        }
+
+        private static void ValidateLength<T>(IReadOnlyCollection<T> values, int expected, string name)
+        {
+            if (values.Count != expected)
+            {
+                throw new ArgumentException($"{name} 必须包含 {expected} 个元素。", name);
+            }
+        }
+
+        /// <summary>
         /// 发送 <c>db</c> 为空字符串的 JSON 指令（与协议示例一致）。
         /// </summary>
         private Task<CommonResponse> SendCommandEmptyDb(string type) =>
@@ -1206,49 +1437,114 @@ namespace Codroid
         }
 
         /// <summary>
-        /// 获取设置界面参数（指令：<c>Robot/GetRobotParameter</c>，协议 19.7）。
+        /// 获取设置界面参数。优先新接口（<c>Robot/getTools</c> + <c>Robot/getCoordinates</c> + <c>Robot/getPayloads</c>），
+        /// 404 时回退旧接口（<c>Robot/GetRobotParameter</c>，协议 19.7）。
         /// </summary>
         public async Task<RobotParameters> GetRobotParameters()
         {
-            var response = await _TcpClient.SendCommand(NextId(), "Robot/GetRobotParameter", string.Empty);
-            return RobotSettingsSerialization.ParseFromDb(response.db);
+            // 新接口：getTools
+            try
+            {
+                var toolResp = await _TcpClient.SendCommand(NextId(), "Robot/getTools", string.Empty);
+                var (defaultToolId, tool) = RobotSettingsSerialization.ParseToolsFromDb(toolResp.db);
+
+                // 新接口：getCoordinates
+                int defaultCoordId = 0;
+                List<RobotFrame> coordinate = new();
+                try
+                {
+                    var coordResp = await _TcpClient.SendCommand(NextId(), "Robot/getCoordinates", string.Empty);
+                    (defaultCoordId, coordinate) = RobotSettingsSerialization.ParseCoordinatesFromDb(coordResp.db);
+                }
+                catch (CodroidCommandException ex) when (Is404(ex)) { /* getCoordinates 不可用，保持空 */ }
+
+                // 新接口：getPayloads
+                int defaultPayloadId = 0;
+                double maxPayload = 0;
+                List<RobotPayloadFrame> payload = new();
+                try
+                {
+                    var payloadResp = await _TcpClient.SendCommand(NextId(), "Robot/getPayloads", string.Empty);
+                    (defaultPayloadId, maxPayload, payload) = RobotSettingsSerialization.ParsePayloadsFromDb(payloadResp.db);
+                }
+                catch (CodroidCommandException ex) when (Is404(ex)) { /* getPayloads 不可用，保持空 */ }
+
+                return RobotSettingsSerialization.BuildFromNewApi(
+                    defaultToolId, tool, defaultCoordId, coordinate,
+                    defaultPayloadId, maxPayload, payload);
+            }
+            catch (CodroidCommandException ex) when (Is404(ex))
+            {
+                // 回退旧接口
+                var response = await _TcpClient.SendCommand(NextId(), "Robot/GetRobotParameter", string.Empty);
+                return RobotSettingsSerialization.ParseFromDb(response.db);
+            }
         }
 
         /// <summary>
-        /// 设置默认负载编号（指令：<c>Robot/SaveRobotParameter</c>，协议 19.2）。<paramref name="payloadId"/> 为 0~15。
+        /// 设置默认负载编号。<paramref name="payloadId"/> 为 0~15。
+        /// 内部转发至 <see cref="SetPayload"/>（<c>Robot/setPayload</c>，新旧接口均有）。
         /// </summary>
         public Task<CommonResponse> SetDefaultPayloadId(int payloadId)
         {
             RobotSettingsValidation.ValidateDefaultSlotId(payloadId, nameof(payloadId));
-            return SendSaveRobotParameter(RobotSettingsSerialization.BuildDefaultPayloadIdDb(payloadId));
+            return SetPayload(payloadId);
         }
 
         /// <summary>
-        /// 设置默认工具坐标系编号（指令：<c>Robot/SaveRobotParameter</c>，协议 19.3）。<paramref name="toolId"/> 为 0~15。
+        /// 设置默认工具坐标系编号。<paramref name="toolId"/> 为 0~15。
+        /// 优先新接口 <c>Robot/setDefaultTool</c>，404 时回退旧接口 <c>Robot/SaveRobotParameter</c>。
         /// </summary>
-        public Task<CommonResponse> SetDefaultToolId(int toolId)
+        public async Task<CommonResponse> SetDefaultToolId(int toolId)
         {
             RobotSettingsValidation.ValidateDefaultSlotId(toolId, nameof(toolId));
-            return SendSaveRobotParameter(RobotSettingsSerialization.BuildDefaultToolIdDb(toolId));
+            try
+            {
+                return await _TcpClient.SendCommand(NextId(), "Robot/setDefaultTool", toolId);
+            }
+            catch (CodroidCommandException ex) when (Is404(ex))
+            {
+                return await SendSaveRobotParameter(RobotSettingsSerialization.BuildDefaultToolIdDb(toolId));
+            }
         }
 
         /// <summary>
-        /// 设置默认用户坐标系编号（指令：<c>Robot/SaveRobotParameter</c>，协议 19.6）。<paramref name="coordinateId"/> 为 0~15。
+        /// 设置默认用户坐标系编号。<paramref name="coordinateId"/> 为 0~15。
+        /// 优先新接口 <c>Robot/setDefaultCoordinate</c>，404 时回退旧接口 <c>Robot/SaveRobotParameter</c>。
         /// </summary>
-        public Task<CommonResponse> SetDefaultUserCoordinateId(int coordinateId)
+        public async Task<CommonResponse> SetDefaultUserCoordinateId(int coordinateId)
         {
             RobotSettingsValidation.ValidateDefaultSlotId(coordinateId, nameof(coordinateId));
-            return SendSaveRobotParameter(
-                RobotSettingsSerialization.BuildDefaultCoordinateIdDb(coordinateId));
+            try
+            {
+                return await _TcpClient.SendCommand(NextId(), "Robot/setDefaultCoordinate", coordinateId);
+            }
+            catch (CodroidCommandException ex) when (Is404(ex))
+            {
+                return await SendSaveRobotParameter(
+                    RobotSettingsSerialization.BuildDefaultCoordinateIdDb(coordinateId));
+            }
         }
 
         /// <summary>
-        /// 下发完整工具坐标系表（协议 19.4）。须包含 id 0~15；<b>id=0 项必须保持全零</b>。
+        /// 下发完整工具坐标系表。须包含 id 0~15；<b>id=0 项必须保持全零</b>。
+        /// 优先新接口 <c>Robot/setTools</c>（db 含 defaultToolId + Tool），404 时回退旧接口 <c>Robot/SaveRobotParameter</c>。
         /// </summary>
-        public Task<CommonResponse> SaveToolFrames(IReadOnlyList<RobotFrame> frames)
+        public async Task<CommonResponse> SaveToolFrames(IReadOnlyList<RobotFrame> frames)
         {
             RobotSettingsValidation.ValidateToolFramesForSave(frames, nameof(frames));
-            return SendSaveRobotParameter(RobotSettingsSerialization.BuildToolDb(frames));
+            try
+            {
+                // 新接口需附带 defaultToolId，从 frames 中取第一个非零 id 或默认 0
+                int defaultToolId = frames.FirstOrDefault(f => f.Id != 0)?.Id ?? 0;
+                var db = RobotSettingsSerialization.BuildSetToolsDb(defaultToolId, frames);
+                Console.WriteLine($"[DEBUG] setTools 发送 JSON: {System.Text.Json.JsonSerializer.Serialize(db)}");
+                return await _TcpClient.SendCommand(NextId(), "Robot/setTools", db);
+            }
+            catch (CodroidCommandException ex) when (Is404(ex))
+            {
+                return await SendSaveRobotParameter(RobotSettingsSerialization.BuildToolDb(frames));
+            }
         }
 
         /// <summary>
@@ -1262,21 +1558,42 @@ namespace Codroid
             var current = await GetRobotParameters().ConfigureAwait(false);
             var merged = RobotSettingsSerialization.MergeToolFrame(current.Tool, frameId, frame);
             RobotSettingsValidation.ValidateToolFramesForSave(merged, nameof(merged));
-            return await SendSaveRobotParameter(RobotSettingsSerialization.BuildToolDb(merged))
-                .ConfigureAwait(false);
+            return await SaveToolFrames(merged).ConfigureAwait(false);
         }
 
         /// <summary>
-        /// 下发完整负载坐标系表（协议 19.5）。须包含 id 0~15；<b>id=0 项必须保持全零</b>。
+        /// 下发完整负载坐标系表。须包含 id 0~15；<b>id=0 项必须保持全零</b>。
+        /// 优先新接口 <c>Robot/setPayloads</c>（db 含 defaultPayloadId + maxPayload + Payload），404 时回退旧接口。
         /// </summary>
-        public Task<CommonResponse> SavePayloadFrames(IReadOnlyList<RobotPayloadFrame> frames)
+        public async Task<CommonResponse> SavePayloadFrames(IReadOnlyList<RobotPayloadFrame> frames)
         {
             RobotSettingsValidation.ValidatePayloadFramesForSave(frames, nameof(frames));
-            return SendSaveRobotParameter(RobotSettingsSerialization.BuildPayloadDb(frames));
+            try
+            {
+                // 新接口需附带 defaultPayloadId 和 maxPayload，从当前参数读取
+                int defaultPayloadId = frames.FirstOrDefault(f => f.Id != 0)?.Id ?? 0;
+                double maxPayload = 0;
+                try
+                {
+                    var current = await GetRobotParameters().ConfigureAwait(false);
+                    defaultPayloadId = current.DefaultPayloadId;
+                    maxPayload = current.MaxPayload;
+                }
+                catch { /* 读取失败时使用默认值 */ }
+
+                return await _TcpClient.SendCommand(
+                    NextId(), "Robot/setPayloads",
+                    RobotSettingsSerialization.BuildSetPayloadsDb(defaultPayloadId, maxPayload, frames));
+            }
+            catch (CodroidCommandException ex) when (Is404(ex))
+            {
+                return await SendSaveRobotParameter(RobotSettingsSerialization.BuildPayloadDb(frames));
+            }
         }
 
         /// <summary>
         /// 修改单个负载坐标系（先读后改）。<paramref name="frameId"/> 仅允许 1~15。
+        /// 优先新接口 <c>Robot/setPayloads</c>，404 时回退旧接口。
         /// </summary>
         public async Task<CommonResponse> SetPayloadFrame(int frameId, RobotPayloadFrame frame)
         {
@@ -1286,17 +1603,39 @@ namespace Codroid
             var current = await GetRobotParameters().ConfigureAwait(false);
             var merged = RobotSettingsSerialization.MergePayloadFrame(current.Payload, frameId, frame);
             RobotSettingsValidation.ValidatePayloadFramesForSave(merged, nameof(merged));
-            return await SendSaveRobotParameter(RobotSettingsSerialization.BuildPayloadDb(merged))
-                .ConfigureAwait(false);
+
+            try
+            {
+                return await _TcpClient.SendCommand(
+                    NextId(), "Robot/setPayloads",
+                    RobotSettingsSerialization.BuildSetPayloadsDb(
+                        current.DefaultPayloadId, current.MaxPayload, merged));
+            }
+            catch (CodroidCommandException ex) when (Is404(ex))
+            {
+                return await SendSaveRobotParameter(RobotSettingsSerialization.BuildPayloadDb(merged))
+                    .ConfigureAwait(false);
+            }
         }
 
         /// <summary>
-        /// 下发完整用户坐标系表（协议 19.6 坐标表部分）。须包含 id 0~15；<b>id=0 项必须保持全零</b>。
+        /// 下发完整用户坐标系表。须包含 id 0~15；<b>id=0 项必须保持全零</b>。
+        /// 优先新接口 <c>Robot/setCoordinates</c>（db 含 defaultCoordinateId + Coordinate），404 时回退旧接口。
         /// </summary>
-        public Task<CommonResponse> SaveUserCoordinateFrames(IReadOnlyList<RobotFrame> frames)
+        public async Task<CommonResponse> SaveUserCoordinateFrames(IReadOnlyList<RobotFrame> frames)
         {
             RobotSettingsValidation.ValidateToolFramesForSave(frames, nameof(frames));
-            return SendSaveRobotParameter(RobotSettingsSerialization.BuildCoordinateDb(frames));
+            try
+            {
+                int defaultCoordId = frames.FirstOrDefault(f => f.Id != 0)?.Id ?? 0;
+                var db = RobotSettingsSerialization.BuildSetCoordinatesDb(defaultCoordId, frames);
+                Console.WriteLine($"[DEBUG] setCoordinates 发送 JSON: {System.Text.Json.JsonSerializer.Serialize(db)}");
+                return await _TcpClient.SendCommand(NextId(), "Robot/setCoordinates", db);
+            }
+            catch (CodroidCommandException ex) when (Is404(ex))
+            {
+                return await SendSaveRobotParameter(RobotSettingsSerialization.BuildCoordinateDb(frames));
+            }
         }
 
         /// <summary>
@@ -1310,12 +1649,16 @@ namespace Codroid
             var current = await GetRobotParameters().ConfigureAwait(false);
             var merged = RobotSettingsSerialization.MergeCoordinateFrame(current.Coordinate, frameId, frame);
             RobotSettingsValidation.ValidateToolFramesForSave(merged, nameof(merged));
-            return await SendSaveRobotParameter(RobotSettingsSerialization.BuildCoordinateDb(merged))
-                .ConfigureAwait(false);
+            return await SaveUserCoordinateFrames(merged).ConfigureAwait(false);
         }
 
         private Task<CommonResponse> SendSaveRobotParameter(object db) =>
             _TcpClient.SendCommand(NextId(), "Robot/SaveRobotParameter", db);
+
+        /// <summary>判断控制器错误是否为 404（接口不存在）。</summary>
+        private static bool Is404(CodroidCommandException ex) =>
+            ex.ControllerError?.Contains("404") == true
+            || ex.Message.Contains("404");
 
         /// <summary>
         /// 单段关节 <c>movJ</c>（指令：<c>Robot/move</c>，<c>targetPoint.jp</c>）。

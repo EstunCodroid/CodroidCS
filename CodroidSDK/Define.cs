@@ -29,6 +29,83 @@ public class CommonResponse
     public string? err { get; set; }
 }
 
+/// <summary>力控算法枚举；当前 InitForceControl 固定使用 Admittance。</summary>
+public enum ForceControlAlgo
+{
+    /// <summary>阻抗控制。</summary>
+    Impedance = 0,
+    /// <summary>导纳控制；当前 InitForceControl 固定使用该值。</summary>
+    Admittance = 1,
+    /// <summary>PD 力控。</summary>
+    PdForce = 2
+}
+
+/// <summary>力控坐标系。</summary>
+public enum ForceFrame
+{
+    /// <summary>TCP 坐标系。</summary>
+    Tcp = 0,
+    /// <summary>用户坐标系。</summary>
+    User = 1,
+    /// <summary>世界坐标系。</summary>
+    World = 2
+}
+
+/// <summary>力控逐轴模式。</summary>
+public enum ForceAxisMode
+{
+    /// <summary>位置模式。</summary>
+    Position = 0,
+    /// <summary>力模式。</summary>
+    Force = 1,
+    /// <summary>柔顺模式。</summary>
+    Compliant = 2
+}
+
+/// <summary>力控数据健康状态。</summary>
+public enum ForceHealth
+{
+    /// <summary>数据正常。</summary>
+    Ok = 0,
+    /// <summary>数据无效。</summary>
+    Invalid = 1,
+    /// <summary>数据超时。</summary>
+    Timeout = 2,
+    /// <summary>力或力矩饱和。</summary>
+    Saturated = 3,
+    /// <summary>数据包丢失超限。</summary>
+    PacketLoss = 4
+}
+
+/// <summary>Robot/getForceState 返回的力控状态快照。</summary>
+public class ForceControlState
+{
+    /// <summary>力控是否已启用。</summary>
+    public bool Enabled { get; set; }
+    /// <summary>力控是否处于待完成状态。</summary>
+    public bool Pending { get; set; }
+    /// <summary>当前力控算法编号。</summary>
+    public int Algo { get; set; }
+    /// <summary>力数据是否有效。</summary>
+    public bool Valid { get; set; }
+    /// <summary>是否检测到接触。</summary>
+    public bool IsContact { get; set; }
+    /// <summary>是否触发过力保护。</summary>
+    public bool IsOverforce { get; set; }
+    /// <summary>力数据健康状态编号。</summary>
+    public int Health { get; set; }
+    /// <summary>TCP 坐标系下的六维力/力矩。</summary>
+    public double[] WrenchTcp { get; set; } = new double[6];
+    /// <summary>基坐标系下的六维力/力矩。</summary>
+    public double[] WrenchBase { get; set; } = new double[6];
+    /// <summary>期望六维力/力矩。</summary>
+    public double[] DesiredWrench { get; set; } = new double[6];
+    /// <summary>力跟踪误差。</summary>
+    public double[] TrackError { get; set; } = new double[6];
+    /// <summary>六个轴的力控模式。</summary>
+    public int[] AxisMode { get; set; } = new int[6];
+}
+
 
 /// <summary>
 /// CRI 实时数据快照：由 UDP 二进制包经 <see cref="CriRealtimePacketParser"/> 解析得到；

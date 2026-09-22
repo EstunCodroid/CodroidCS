@@ -1344,7 +1344,7 @@ await robot.SetPayload(1); // Use payload slot 1
 public async Task<RobotParameters> GetRobotParameters()
 ```
 
-Gets all setting-interface parameters (protocol 19.7). Returns tool frames, payload frames, coordinate frames, and default IDs.
+Gets all setting-interface parameters. Uses new API (`Robot/getTools` + `Robot/getCoordinates`) with automatic fallback to legacy `Robot/GetRobotParameter` (protocol 19.7) on 404. Note: new API does not return Payload data; Payload list will be empty on new firmware.
 
 **Returns:** `Task<RobotParameters>` — robot parameters including tool frames, payload frames, coordinate frames, and default IDs
 
@@ -1369,6 +1369,10 @@ public Task<CommonResponse> SetDefaultUserCoordinateId(int coordinateId) // 0~15
 
 Set default payload / tool / user coordinate frame slot.
 
+- `SetDefaultPayloadId` forwards to `SetPayload` (`Robot/setPayload`, available on both old and new firmware)
+- `SetDefaultToolId` uses new API `Robot/setDefaultTool`, falls back to `Robot/SaveRobotParameter` on 404
+- `SetDefaultUserCoordinateId` uses new API `Robot/setDefaultCoordinate`, falls back to `Robot/SaveRobotParameter` on 404
+
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `payloadId` / `toolId` / `coordinateId` | `int` | -- | Frame slot ID (0~15) |
@@ -1392,7 +1396,7 @@ public Task<CommonResponse> SaveToolFrames(IReadOnlyList<RobotFrame> frames)
 public async Task<CommonResponse> SetToolFrame(int frameId, RobotFrame frame)
 ```
 
-Save the full tool frame table (must include id 0~15, id=0 must be all zeros) / Modify a single tool frame (read-then-write, id 1~15 only).
+Save the full tool frame table (must include id 0~15, id=0 must be all zeros) / Modify a single tool frame (read-then-write, id 1~15 only). Uses new API `Robot/setTools` (db includes `defaultToolId` + `Tool` array), falls back to `Robot/SaveRobotParameter` on 404.
 
 | Method | Parameter | Type | Default | Description |
 |--------|-----------|------|---------|-------------|
@@ -1414,14 +1418,15 @@ await robot.SetToolFrame(1, new RobotFrame
 
 ---
 
-### SavePayloadFrames / SetPayloadFrame
+### SavePayloadFrames / SetPayloadFrame `[Obsolete]`
 
 ```csharp
+[Obsolete("New firmware removed Payload table write via SaveRobotParameter; use SetPayload(payloadId).")]
 public Task<CommonResponse> SavePayloadFrames(IReadOnlyList<RobotPayloadFrame> frames)
 public async Task<CommonResponse> SetPayloadFrame(int frameId, RobotPayloadFrame frame)
 ```
 
-Save full payload frame table / Modify single payload frame (id 1~15).
+Save full payload frame table / Modify single payload frame (id 1~15). **Obsolete**: new firmware removed `Robot/SaveRobotParameter` Payload write capability. Use `SetPayload(payloadId)` instead.
 
 | Method | Parameter | Type | Default | Description |
 |--------|-----------|------|---------|-------------|
@@ -1434,6 +1439,7 @@ Save full payload frame table / Modify single payload frame (id 1~15).
 **Throws:** `CodroidCommandException` (controller error), `TimeoutException` (no response within 10s)
 
 ```csharp
+// Obsolete - only works on legacy firmware
 await robot.SetPayloadFrame(1, new RobotPayloadFrame
 {
     Id = 1, M = 2.5, Mx = 0, My = 0, Mz = 50
@@ -1449,7 +1455,7 @@ public Task<CommonResponse> SaveUserCoordinateFrames(IReadOnlyList<RobotFrame> f
 public async Task<CommonResponse> SetUserCoordinateFrame(int frameId, RobotFrame frame)
 ```
 
-Save full user coordinate frame table / Modify single user coordinate frame (id 1~15).
+Save full user coordinate frame table / Modify single user coordinate frame (id 1~15). Uses new API `Robot/setCoordinates` (db includes `defaultCoordinateId` + `Coordinate` array), falls back to `Robot/SaveRobotParameter` on 404.
 
 | Method | Parameter | Type | Default | Description |
 |--------|-----------|------|---------|-------------|
@@ -2623,7 +2629,7 @@ CriRealTimeData snapshot = data.Clone();
 
 ## 3. RobotFrame
 
-A sealed class representing a coordinate frame definition, used for both tool frames and user coordinate frames. Contains an ID and a 6-axis pose (position + orientation).
+A sealed class representing a coordinate frame definition, used for both tool frames and user coordinate frames. Contains an ID, a 6-axis pose (position + orientation), and optional tool-specific fields (name, offsets).
 
 ### Properties
 
@@ -2636,6 +2642,10 @@ A sealed class representing a coordinate frame definition, used for both tool fr
 | `A` | `double` | Rotation around X axis (deg) |
 | `B` | `double` | Rotation around Y axis (deg) |
 | `C` | `double` | Rotation around Z axis (deg) |
+| `Name` | `string?` | Tool/coordinate name (tool frames only, optional) |
+| `XOffset` | `double` | Tool offset X (mm, optional, tool frames only) |
+| `YOffset` | `double` | Tool offset Y (mm, optional, tool frames only) |
+| `ZOffset` | `double` | Tool offset Z (mm, optional, tool frames only) |
 
 ### Example
 
@@ -4826,6 +4836,121 @@ On net462, `BinaryPrimitives.WriteDoubleLittleEndian(Span<byte>, double)` is not
     BinaryPrimitives.WriteDoubleLittleEndian(buffer.AsSpan(offset, 8), value);
 #endif
 ```
+
+---
+
+## Force Control APIs (v2.1.11+)
+
+The C# SDK force-control surface is aligned with Python and supports `net462`, `net6.0`, and `net8.0`. `InitForceControl` always sends admittance control `algo=1`; callers cannot pass an algorithm parameter. The old `FTSensorDriftCalibration` API has been removed.
+
+### Enums and State Type
+
+```csharp
+public enum ForceControlAlgo { Impedance = 0, Admittance = 1, PdForce = 2 }
+public enum ForceFrame { Tcp = 0, User = 1, World = 2 }
+public enum ForceAxisMode { Position = 0, Force = 1, Compliant = 2 }
+public enum ForceHealth { Ok = 0, Invalid = 1, Timeout = 2, Saturated = 3, PacketLoss = 4 }
+
+public class ForceControlState
+{
+    public bool Enabled { get; set; }
+    public bool Pending { get; set; }
+    public int Algo { get; set; }
+    public bool Valid { get; set; }
+    public bool IsContact { get; set; }
+    public bool IsOverforce { get; set; }
+    public int Health { get; set; }
+    public double[] WrenchTcp { get; set; }
+    public double[] WrenchBase { get; set; }
+    public double[] DesiredWrench { get; set; }
+    public double[] TrackError { get; set; }
+    public int[] AxisMode { get; set; }
+}
+```
+
+### Initialize, Start, Stop
+
+```csharp
+Task<CommonResponse> ZeroForceCalibration(int calibrationTimeMs = 1000);
+Task<CommonResponse> InitForceControl(
+    ForceFrame frame,
+    IReadOnlyList<ForceAxisMode> axisMode,
+    object? compliance = null,
+    object? constantForce = null,
+    double[]? userFrameRpy = null,
+    double[]? desiredWrench = null,
+    object? forceLimit = null);
+Task<CommonResponse> StartForceControl();
+Task<CommonResponse> StopForceControl(int smoothTimeMs = 500);
+```
+
+`axisMode` must contain 6 axes. `ZeroForceCalibration` uses `calibrationTimeMs` as the zero-force calibration duration.
+
+### Online Tuning and Safety
+
+```csharp
+Task<CommonResponse> TuneForceParams(
+    double[]? stiffness = null,
+    double[]? damping = null,
+    double[]? mass = null,
+    double[]? desiredForce = null,
+    double[]? kp = null,
+    double[]? kd = null,
+    double? rampTime = null);
+
+Task<CommonResponse> StartContactDetection(
+    double[] direction,
+    double? feedVelocity = null,
+    double? contactForceThreshold = null,
+    double? velDropRatio = null,
+    double? maxTravel = null,
+    double? timeoutMs = null);
+
+Task<CommonResponse> SetOverforceProtection(
+    bool? enable = null,
+    double[]? forceThreshold = null,
+    double? holdMs = null);
+
+Task<CommonResponse> SetForceDataHealth(
+    bool? enable = null,
+    double? timeoutMs = null,
+    double? maxPacketLossRatio = null,
+    int? packetLossWindow = null,
+    double? forceSaturation = null,
+    double? torqueSaturation = null);
+```
+
+`direction` and `forceThreshold` are 6D arrays. `TuneForceParams` can update desired force, stiffness, damping, mass, and related parameters online.
+
+### State Reading
+
+```csharp
+Task<ForceControlState> GetForceState();
+Task<bool> GetForceStateEnabled();
+Task<bool> GetForceStatePending();
+Task<int> GetForceStateAlgo();
+Task<bool> GetForceStateValid();
+Task<bool> GetForceStateIsContact();
+Task<bool> GetForceStateIsOverforce();
+Task<int> GetForceStateHealth();
+Task<double[]> GetForceStateWrenchTcp();
+Task<double[]> GetForceStateWrenchBase();
+Task<double[]> GetForceStateDesiredWrench();
+Task<double[]> GetForceStateTrackError();
+Task<int[]> GetForceStateAxisMode();
+```
+
+Each single-field getter returns the field's concrete type. For example, `GetForceStateEnabled()` returns `bool`, and `GetForceStateWrenchTcp()` returns `double[]`.
+
+### Test Example
+
+```bash
+dotnet run --project examples/ForceControlTest/ForceControlTest.csproj -f net8.0 -- 192.168.1.136 state
+dotnet run --project examples/ForceControlTest/ForceControlTest.csproj -f net6.0 -- 192.168.1.136 constant
+dotnet run --project examples/ForceControlTest/ForceControlTest.csproj -f net8.0 -- 192.168.1.136 contact --allow-motion
+```
+
+The `net462` target is for Windows .NET Framework 4.6.2+.
 
 ---
 

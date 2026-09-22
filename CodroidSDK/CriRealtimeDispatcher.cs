@@ -41,6 +41,8 @@ public sealed class CriRealtimeDispatcher : IDisposable
     private readonly IPEndPoint _target;
     private readonly bool _convertToSi;
     private int _disposed;
+    private bool _firstFrameDebug = true;
+    private bool _firstSendDebug = true;
 
     /// <summary>
     /// 创建下发器。
@@ -95,11 +97,32 @@ public sealed class CriRealtimeDispatcher : IDisposable
         }
         buffer[TypeOffset] = (byte)(space == TrajectorySpace.Joint ? 0 : 1);
 
+        // 首帧调试：打印 hex dump
+        if (_firstFrameDebug)
+        {
+            _firstFrameDebug = false;
+            var hex = BitConverter.ToString(buffer, 0, Math.Min(64, buffer.Length));
+            Console.WriteLine($"  [CRI-DEBUG] 首帧 hex dump (64 bytes): {hex}");
+            Console.WriteLine($"  [CRI-DEBUG] type byte[56]={buffer[56]} → {(space == TrajectorySpace.Joint ? "关节" : "末端")}");
+            Console.WriteLine($"  [CRI-DEBUG] target={_target}");
+            Console.WriteLine($"  [CRI-DEBUG] convertToSi={_convertToSi}");
+        }
+
 #if NET462
-        _udp.Send(buffer, CommandPacketLength, _target);
+        int sent = _udp.Send(buffer, CommandPacketLength, _target);
+        if (_firstSendDebug)
+        {
+            _firstSendDebug = false;
+            Console.WriteLine($"  [CRI-DEBUG] UdpClient.Send returned: {sent} bytes (expected {CommandPacketLength})");
+        }
         await Task.CompletedTask;
 #else
-        await _udp.SendAsync(buffer.AsMemory(0, CommandPacketLength), _target, ct).ConfigureAwait(false);
+        int sent = await _udp.SendAsync(buffer.AsMemory(0, CommandPacketLength), _target, ct).ConfigureAwait(false);
+        if (_firstSendDebug)
+        {
+            _firstSendDebug = false;
+            Console.WriteLine($"  [CRI-DEBUG] UdpClient.SendAsync returned: {sent} bytes (expected {CommandPacketLength})");
+        }
 #endif
     }
 
@@ -135,19 +158,27 @@ public sealed class CriRealtimeDispatcher : IDisposable
 #if NET462
         await SendTrajectoryNet462(trajectory, space, periodMs, ct).ConfigureAwait(false);
 #else
-        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(periodMs));
-        bool first = true;
+        // 使用 Stopwatch + SpinWait 精确计时，避免 PeriodicTimer 在 4ms 周期下
+        // 受系统时钟分辨率（~15.6ms）影响导致 UDP 帧发送周期不稳定。
+        var stopwatch = Stopwatch.StartNew();
+        long ticksPerPeriod = (long)(Stopwatch.Frequency * periodMs / 1000.0);
+        long nextTick = stopwatch.ElapsedTicks;
+        var spinWait = new SpinWait();
+
         foreach (var point in trajectory)
         {
             ct.ThrowIfCancellationRequested();
-            if (!first)
-            {
-                if (!await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
-                    break;
-            }
-            first = false;
+
+            // 等待到当前周期的目标时刻
+            while (stopwatch.ElapsedTicks < nextTick)
+                spinWait.SpinOnce();
+
             await SendCommand(point.Position, space, ct).ConfigureAwait(false);
+            nextTick += ticksPerPeriod;
         }
+
+        // 等待一个周期，确保最后一帧已到达控制器后再返回，避免调用方过早 StopCriControl
+        await Task.Delay(periodMs, ct).ConfigureAwait(false);
 #endif
     }
 
@@ -221,17 +252,18 @@ public sealed class CriRealtimeDispatcher : IDisposable
 
             if (remainingTicks > 0)
             {
-                double remainingMs = remainingTicks * 1000.0 / Stopwatch.Frequency;
-                if (remainingMs > 1.5)
+                // 使用 Stopwatch + SpinWait 精确等待，避免 Thread.Sleep(1) 在默认
+                // 系统时钟分辨率（~15.6ms）下实际睡眠过长，导致控制器缓冲区耗尽。
+                var spinWait = new SpinWait();
+                while (stopwatch.ElapsedTicks < nextTick)
                 {
-                    Thread.Sleep(1);
-                }
-                else
-                {
-                    Thread.SpinWait(50);
+                    spinWait.SpinOnce();
                 }
             }
         }
+
+        // 等待一个周期，确保最后一帧已到达控制器后再返回
+        Thread.Sleep(periodMs);
 
         double avgPeriodMs = frameCount > 1 ? sumPeriodMs / (frameCount - 1) : 0;
         double elapsedSec = stopwatch.ElapsedMilliseconds / 1000.0;

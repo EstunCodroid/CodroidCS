@@ -1364,7 +1364,7 @@ await robot.SetPayload(1); // 使用载荷槽位 1
 public async Task<RobotParameters> GetRobotParameters()
 ```
 
-获取所有设置界面参数（协议 19.7）。返回工具坐标系、载荷坐标系、用户坐标系及默认 ID。
+获取所有设置界面参数。优先使用新接口（`Robot/getTools` + `Robot/getCoordinates`），404 时自动回退到旧接口 `Robot/GetRobotParameter`（协议 19.7）。注意：新接口不返回 Payload 数据，新固件上 Payload 列表为空。
 
 **返回值：** `Task<RobotParameters>` — 机器人完整参数集
 
@@ -1389,6 +1389,10 @@ public Task<CommonResponse> SetDefaultUserCoordinateId(int coordinateId) // 0~15
 
 设置默认载荷/工具/用户坐标系槽位。
 
+- `SetDefaultPayloadId` 转发至 `SetPayload`（`Robot/setPayload`，新旧固件均支持）
+- `SetDefaultToolId` 优先新接口 `Robot/setDefaultTool`，404 时回退到 `Robot/SaveRobotParameter`
+- `SetDefaultUserCoordinateId` 优先新接口 `Robot/setDefaultCoordinate`，404 时回退到 `Robot/SaveRobotParameter`
+
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `payloadId` / `toolId` / `coordinateId` | `int` | — | 槽位编号，范围 0~15 |
@@ -1412,7 +1416,7 @@ public Task<CommonResponse> SaveToolFrames(IReadOnlyList<RobotFrame> frames)
 public async Task<CommonResponse> SetToolFrame(int frameId, RobotFrame frame)
 ```
 
-保存完整工具坐标系表（必须包含 id 0~15，id=0 必须全零）/ 修改单个工具坐标系（先读后写，仅 id 1~15）。
+保存完整工具坐标系表（必须包含 id 0~15，id=0 必须全零）/ 修改单个工具坐标系（先读后写，仅 id 1~15）。优先新接口 `Robot/setTools`（db 含 `defaultToolId` + `Tool` 数组），404 时回退到 `Robot/SaveRobotParameter`。
 
 **SaveToolFrames 参数：**
 
@@ -1441,14 +1445,15 @@ await robot.SetToolFrame(1, new RobotFrame
 
 ---
 
-#### SavePayloadFrames / SetPayloadFrame
+#### SavePayloadFrames / SetPayloadFrame `[Obsolete]`
 
 ```csharp
+[Obsolete("新固件已移除 Robot/SaveRobotParameter 的 Payload 写入能力；如需设置负载请使用 SetPayload(payloadId)。")]
 public Task<CommonResponse> SavePayloadFrames(IReadOnlyList<RobotPayloadFrame> frames)
 public async Task<CommonResponse> SetPayloadFrame(int frameId, RobotPayloadFrame frame)
 ```
 
-保存完整载荷坐标系表 / 修改单个载荷坐标系（id 1~15）。
+保存完整载荷坐标系表 / 修改单个载荷坐标系（id 1~15）。**已过时**：新固件已移除 `Robot/SaveRobotParameter` 的 Payload 写入能力，请使用 `SetPayload(payloadId)`。
 
 **SavePayloadFrames 参数：**
 
@@ -1468,6 +1473,7 @@ public async Task<CommonResponse> SetPayloadFrame(int frameId, RobotPayloadFrame
 **异常：** `CodroidCommandException`（控制器返回错误）、`TimeoutException`（10 秒未响应）、`ArgumentOutOfRangeException`（frameId 超出范围）
 
 ```csharp
+// 已过时 - 仅旧固件可用
 await robot.SetPayloadFrame(1, new RobotPayloadFrame
 {
     Id = 1, M = 2.5, Mx = 0, My = 0, Mz = 50
@@ -1483,7 +1489,7 @@ public Task<CommonResponse> SaveUserCoordinateFrames(IReadOnlyList<RobotFrame> f
 public async Task<CommonResponse> SetUserCoordinateFrame(int frameId, RobotFrame frame)
 ```
 
-保存完整用户坐标系表 / 修改单个用户坐标系（id 1~15）。
+保存完整用户坐标系表 / 修改单个用户坐标系（id 1~15）。优先新接口 `Robot/setCoordinates`（db 含 `defaultCoordinateId` + `Coordinate` 数组），404 时回退到 `Robot/SaveRobotParameter`。
 
 **SaveUserCoordinateFrames 参数：**
 
@@ -2648,7 +2654,7 @@ CriRealTimeData snapshot = data.Clone();
 
 ### 3. RobotFrame
 
-一个密封类，表示坐标系定义，用于工具坐标系和用户坐标系。包含 ID 和六轴位姿（位置+姿态）。
+一个密封类，表示坐标系定义，用于工具坐标系和用户坐标系。包含 ID、六轴位姿（位置+姿态），以及工具帧可选字段（名称、偏置）。
 
 #### 属性
 
@@ -2661,6 +2667,10 @@ CriRealTimeData snapshot = data.Clone();
 | `A` | `double` | 绕 X 轴的旋转角度（度） |
 | `B` | `double` | 绕 Y 轴的旋转角度（度） |
 | `C` | `double` | 绕 Z 轴的旋转角度（度） |
+| `Name` | `string?` | 工具/坐标系名称（仅工具帧，可选） |
+| `XOffset` | `double` | 沿工具坐标系的偏置（毫米，可选，仅工具帧） |
+| `YOffset` | `double` | 沿工具坐标系的偏置（毫米，可选，仅工具帧） |
+| `ZOffset` | `double` | 沿工具坐标系的偏置（毫米，可选，仅工具帧） |
 
 #### 示例
 
@@ -4438,6 +4448,121 @@ public string Name { get; init; } = "";
     BinaryPrimitives.WriteDoubleLittleEndian(buffer.AsSpan(offset, 8), value);
 #endif
 ```
+
+---
+
+## 力控接口（v2.1.11+）
+
+当前 C# SDK 与 Python 力控接口对齐，并同时支持 `net462`、`net6.0`、`net8.0`。`InitForceControl` 固定下发导纳算法 `algo=1`，不开放算法参数；旧 `FTSensorDriftCalibration` 已移除。
+
+### 枚举与状态类型
+
+```csharp
+public enum ForceControlAlgo { Impedance = 0, Admittance = 1, PdForce = 2 }
+public enum ForceFrame { Tcp = 0, User = 1, World = 2 }
+public enum ForceAxisMode { Position = 0, Force = 1, Compliant = 2 }
+public enum ForceHealth { Ok = 0, Invalid = 1, Timeout = 2, Saturated = 3, PacketLoss = 4 }
+
+public class ForceControlState
+{
+    public bool Enabled { get; set; }
+    public bool Pending { get; set; }
+    public int Algo { get; set; }
+    public bool Valid { get; set; }
+    public bool IsContact { get; set; }
+    public bool IsOverforce { get; set; }
+    public int Health { get; set; }
+    public double[] WrenchTcp { get; set; }
+    public double[] WrenchBase { get; set; }
+    public double[] DesiredWrench { get; set; }
+    public double[] TrackError { get; set; }
+    public int[] AxisMode { get; set; }
+}
+```
+
+### 初始化、启动与停止
+
+```csharp
+Task<CommonResponse> ZeroForceCalibration(int calibrationTimeMs = 1000);
+Task<CommonResponse> InitForceControl(
+    ForceFrame frame,
+    IReadOnlyList<ForceAxisMode> axisMode,
+    object? compliance = null,
+    object? constantForce = null,
+    double[]? userFrameRpy = null,
+    double[]? desiredWrench = null,
+    object? forceLimit = null);
+Task<CommonResponse> StartForceControl();
+Task<CommonResponse> StopForceControl(int smoothTimeMs = 500);
+```
+
+`axisMode` 必须为 6 个轴。`ZeroForceCalibration` 的 `calibrationTimeMs` 为零力校准时长。
+
+### 在线调参与安全接口
+
+```csharp
+Task<CommonResponse> TuneForceParams(
+    double[]? stiffness = null,
+    double[]? damping = null,
+    double[]? mass = null,
+    double[]? desiredForce = null,
+    double[]? kp = null,
+    double[]? kd = null,
+    double? rampTime = null);
+
+Task<CommonResponse> StartContactDetection(
+    double[] direction,
+    double? feedVelocity = null,
+    double? contactForceThreshold = null,
+    double? velDropRatio = null,
+    double? maxTravel = null,
+    double? timeoutMs = null);
+
+Task<CommonResponse> SetOverforceProtection(
+    bool? enable = null,
+    double[]? forceThreshold = null,
+    double? holdMs = null);
+
+Task<CommonResponse> SetForceDataHealth(
+    bool? enable = null,
+    double? timeoutMs = null,
+    double? maxPacketLossRatio = null,
+    int? packetLossWindow = null,
+    double? forceSaturation = null,
+    double? torqueSaturation = null);
+```
+
+`direction` 与 `forceThreshold` 均为 6 维数组。`TuneForceParams` 可在线更新期望力、刚度、阻尼、质量等参数。
+
+### 状态读取
+
+```csharp
+Task<ForceControlState> GetForceState();
+Task<bool> GetForceStateEnabled();
+Task<bool> GetForceStatePending();
+Task<int> GetForceStateAlgo();
+Task<bool> GetForceStateValid();
+Task<bool> GetForceStateIsContact();
+Task<bool> GetForceStateIsOverforce();
+Task<int> GetForceStateHealth();
+Task<double[]> GetForceStateWrenchTcp();
+Task<double[]> GetForceStateWrenchBase();
+Task<double[]> GetForceStateDesiredWrench();
+Task<double[]> GetForceStateTrackError();
+Task<int[]> GetForceStateAxisMode();
+```
+
+单字段 getter 返回对应字段类型，例如 `GetForceStateEnabled()` 返回 `bool`，`GetForceStateWrenchTcp()` 返回 `double[]`。
+
+### 测试示例
+
+```bash
+dotnet run --project examples/ForceControlTest/ForceControlTest.csproj -f net8.0 -- 192.168.1.136 state
+dotnet run --project examples/ForceControlTest/ForceControlTest.csproj -f net6.0 -- 192.168.1.136 constant
+dotnet run --project examples/ForceControlTest/ForceControlTest.csproj -f net8.0 -- 192.168.1.136 contact --allow-motion
+```
+
+`net462` 目标用于 Windows .NET Framework 4.6.2+。
 
 ---
 
